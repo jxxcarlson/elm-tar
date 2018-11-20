@@ -13,7 +13,7 @@ module Tar exposing (encodeFiles, defaultFileRecord)
 
     bytes = Tar.encodeFiles [ ( fileRecord1, content1 ) ] |> Bytes.Encode.encode
 
-    Download.bytes ("test.tar") "application/x-tar" bytes
+    File.Download.bytes ("test.tar") "application/x-tar" bytes
      ```
 
 Just put more pairs `(fileRecord, content)` in the list above to

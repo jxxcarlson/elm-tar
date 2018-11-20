@@ -6,7 +6,7 @@ With this package you can create tar archives using the function
    encodeFiles : List (FileRecord, String) -> Encode.Encoder
 ```
 
-Here is an example:
+Here is an example which uses `elm/bytes` and `elm/file`:
 
 ```
    fileRecord1 =
@@ -17,7 +17,7 @@ Here is an example:
 
    bytes = Tar.encodeFiles [ ( fileRecord1, content1 ) ] |> Bytes.Encode.encode
 
-   Download.bytes ("test.tar") "application/x-tar" bytes
+   File.Download.bytes ("test.tar") "application/x-tar" bytes
 ```
 
 Just put more pairs `(fileRecord, content)`in the list above to archive more files.
@@ -26,4 +26,4 @@ There is a small test app in the `examples` folder of the GitHub repo that shows
 
 ## References
 
-I've used https://en.wikipedia.org/wiki/Tar_(computing) as my reference for the tar file format. 
+I've used https://en.wikipedia.org/wiki/Tar_(computing) as my reference for the tar file format.
