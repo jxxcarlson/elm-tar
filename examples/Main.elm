@@ -4,8 +4,9 @@ import Browser
 import Html exposing (..)
 import Bytes exposing (Bytes)
 import Bytes.Encode exposing (encode)
-import Tar
+import Tar exposing (Data(..))
 import File.Download as Download
+import Hex
 
 
 -- MAIN
@@ -54,8 +55,20 @@ initialData =
 
         content2 =
             "Four five six\n"
+
+        fileRecord3 =
+            { fileRecord_ | filename = "c.binary" }
+
+        content3 =
+            Hex.toBytes "A0B1C2D3E4" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
     in
-        Tar.encodeFiles [ ( fileRecord1, content1 ), ( fileRecord2, content2 ) ] |> encode
+        -- Tar.encodeTextFiles [ ( fileRecord1, content1 ), ( fileRecord2, content2 ) ] |> encode
+        Tar.encodeFiles
+            [ ( fileRecord1, StringData content1 )
+            , ( fileRecord2, StringData content2 )
+            , ( fileRecord3, BinaryData content3 )
+            ]
+            |> encode
 
 
 saveData : Bytes -> Cmd msg

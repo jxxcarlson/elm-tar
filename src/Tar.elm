@@ -1,4 +1,4 @@
-module Tar exposing (encodeFiles, defaultFileRecord)
+module Tar exposing (Data(..), encodeTextFiles, encodeFiles, defaultFileRecord)
 
 {-| With this package you can create tar archives. Use
 
@@ -86,7 +86,15 @@ type Link
 > encodeFiles [(defaultFileRecord, "This is a test"), (defaultFileRecord, "Lah di dah do day!")] |> encode
 > <2594 bytes> : Bytes
 -}
-encodeFiles : List ( FileRecord, String ) -> Encode.Encoder
+encodeTextFiles : List ( FileRecord, String ) -> Encode.Encoder
+encodeTextFiles fileList =
+    Encode.sequence
+        ((List.map (\item -> encodeTextFile (Tuple.first item) (Tuple.second item)) fileList)
+            ++ [ Encode.string (normalizeString 1024 "") ]
+        )
+
+
+encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
 encodeFiles fileList =
     Encode.sequence
         ((List.map (\item -> encodeFile (Tuple.first item) (Tuple.second item)) fileList)
@@ -94,8 +102,13 @@ encodeFiles fileList =
         )
 
 
-encodeFile : FileRecord -> String -> Encode.Encoder
-encodeFile fileRecord_ contents =
+type Data
+    = StringData String
+    | BinaryData Bytes
+
+
+encodeTextFile : FileRecord -> String -> Encode.Encoder
+encodeTextFile fileRecord_ contents =
     let
         fileRecord =
             { fileRecord_ | fileSize = String.length contents }
@@ -103,6 +116,40 @@ encodeFile fileRecord_ contents =
         Encode.sequence
             [ encodeFileRecord fileRecord
             , Encode.string (padContents contents)
+            ]
+
+
+encodeFile : FileRecord -> Data -> Encode.Encoder
+encodeFile fileRecord_ data =
+    case data of
+        StringData contents ->
+            encodeTextFile fileRecord_ contents
+
+        BinaryData bytes ->
+            encodeBinaryFile fileRecord_ bytes
+
+
+encodeBinaryFile : FileRecord -> Bytes -> Encode.Encoder
+encodeBinaryFile fileRecord_ bytes =
+    let
+        fileRecord =
+            { fileRecord_ | fileSize = Bytes.width bytes }
+    in
+        Encode.sequence
+            [ encodeFileRecord fileRecord
+            , encodePaddedBytes bytes
+            ]
+
+
+encodePaddedBytes : Bytes -> Encode.Encoder
+encodePaddedBytes bytes =
+    let
+        paddingWidth =
+            modBy 512 (Bytes.width bytes) |> (\x -> 512 - x)
+    in
+        Encode.sequence
+            [ Encode.bytes bytes
+            , Encode.sequence <| List.repeat paddingWidth (Encode.unsignedInt8 0)
             ]
 
 
