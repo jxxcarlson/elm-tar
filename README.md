@@ -1,10 +1,14 @@
 # Elm-Tar
 
-With this package you can create tar archives. Use
+With this package you can create tar archives using the function
 
 ```
    encodeFiles : List (FileRecord, String) -> Encode.Encoder
+```
 
+Here is an example:
+
+```
    fileRecord1 =
        { Tar.defaultFileRecord | filename = "test123.txt" }
 
@@ -16,14 +20,10 @@ With this package you can create tar archives. Use
    Download.bytes ("test.tar") "application/x-tar" bytes
 ```
 
-Just put more pairs `(fileRecord, content)`in the list above toarchive more files.
+Just put more pairs `(fileRecord, content)`in the list above to archive more files.
 
 There is a small test app in the `examples` folder of the GitHub repo that shows how this is done.
 
-## Bug
-
-__One problem__ in case anyone gives this a try in its current rough state.  When multiple files are in the archive, I can see the files using `Atom`, as well as their contents,  When I extract the files, only the first one is untarred.  No error message is given.  Don’t have a diagnosis yet.
-
 ## References
 
-I've used [Wikipedia](https://en.wikipedia.org/wiki/Tar_(computing) as my reference for the tar file format. Is there somethig better?
+I've used https://en.wikipedia.org/wiki/Tar_(computing) as my reference for the tar file format. 
