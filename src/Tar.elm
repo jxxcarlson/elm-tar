@@ -4,18 +4,12 @@ module Tar exposing (Data(..), encodeFiles, encodeTextFiles, defaultFileRecord)
 
        encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
 
-to tar an arbitrary set of files, whch may contain either text or binary
-data, where
-
-      type Data
-          = StringData String
-          | BinaryData Bytes
-
-To tar a set of text files, you can use
+to tar an arbitrary set of files which may contain either text or binary
+data. To tar a set of text files, you can use
 
        encodeTextFiles : List (FileRecord, String) -> Encode.Encoder
 
-For more details, see the README. See also the demo app `./examples/Main.elm
+For more details, see the README. See also the demo app `./examples/Main.elm`
 
 @docs Data, encodeFiles, encodeTextFiles, defaultFileRecord`
 
@@ -85,10 +79,10 @@ type Link
 --
 
 
-{-|
+{-| Example
 
-> encodeFiles [(defaultFileRecord, "This is a test"), (defaultFileRecord, "Lah di dah do day!")] |> encode
-> <2594 bytes> : Bytes
+encodeFiles [(defaultFileRecord, "This is a test"), (defaultFileRecord, "Lah di dah do day!")] |> encode == <2594 bytes> : Bytes
+
 -}
 encodeTextFiles : List ( FileRecord, String ) -> Encode.Encoder
 encodeTextFiles fileList =
@@ -122,6 +116,8 @@ encodeTextFiles fileList =
           , ( fileRecord2, BinaryData content2 )
           ]
           |> encode
+
+      Note: `Hex` is found in `jxxcarlson/hex`
 -}
 encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
 encodeFiles fileList =
@@ -177,18 +173,12 @@ encodePaddedBytes bytes =
             ]
 
 
-pad : Bytes -> Encode.Encoder
-pad bytes =
-    Encode.sequence
-        [ Encode.bytes bytes
-        , Encode.unsignedInt8 0
-        ]
-
-
-{-|
+{-| defaultFileRecord is a dummy FileRecord that you modify
+to suit your needs. See `/examples/Main.elm`.
 
 > encodeFileRecord defaultFileRecord |> encode |> Hex.fromBytes
 > encodeFileRecord defaultFileRecord |> encode |> width
+
 -}
 defaultFileRecord : FileRecord
 defaultFileRecord =

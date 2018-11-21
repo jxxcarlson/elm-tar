@@ -67,6 +67,8 @@ The example below shows how to make an archive for a set of files some of which 
       |> encode
 ```
 
+For `Hex`, see `jxxcarlson/hex`.
+
 ## Demo app
 
 For a demo, run `elm make Main.elm` in `/examples`, then click on the resulting `index.html` file.  To tar text files only, uncomment line 65 and comment out lines 66-71.
