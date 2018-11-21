@@ -1,4 +1,4 @@
-module Tar exposing (Data(..), encodeFiles, encodeTextFiles, defaultFileRecord)
+module Tar exposing (Data(..), FileRecord, encodeFiles, encodeTextFiles, defaultFileRecord)
 
 {-| Use
 
@@ -11,7 +11,7 @@ data. To tar a set of text files, you can use
 
 For more details, see the README. See also the demo app `./examples/Main.elm`
 
-@docs Data, encodeFiles, encodeTextFiles, defaultFileRecord
+@docs Data, FileRecord, encodeFiles, encodeTextFiles, defaultFileRecord
 
 -}
 
@@ -34,6 +34,11 @@ type Data
     | BinaryData Bytes
 
 
+{-| A FileRecord contains the information needed for
+tar to construct the header for the assoicated file
+in the tar archive. You may use `defaultFileRecord` as
+a starting point, modifying only what is needed.
+-}
 type alias FileRecord =
     { filename : String
     , mode : Mode
@@ -176,11 +181,14 @@ encodePaddedBytes bytes =
 
 
 {-| defaultFileRecord is a dummy FileRecord that you modify
-to suit your needs. See `/examples/Main.elm`.
+to suit your needs. It contains a lot of boilerplates
 
-encodeFileRecord defaultFileRecord |> Bytes.Encode.encode |> Hex.fromBytes
+Example
 
-encodeFileRecord defaultFileRecord |> Bytes.Encode.encode |> Bytes.width
+fileRecord = { defaultFileRecord` | filename = "Test.txt" }
+
+See the definition of FileRecord to see what other fields you
+may want to modify.
 
 -}
 defaultFileRecord : FileRecord
