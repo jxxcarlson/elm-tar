@@ -5,8 +5,8 @@ With this package you can create tar archives.  Use
 ```
    encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
 ```
-to tar an arbitrary set of files, whch may contain either text or binary
-data, where
+to tar an arbitrary set of files. The files
+may contain either text or binary data, where
 
 ```
   type Data
@@ -18,16 +18,11 @@ To tar a set of text files, you can use
 ```
    encodeTextFiles : List (FileRecord, String) -> Encode.Encoder
 ```
-The test app in `examples/Main.elm` illustrates how these are used --
-some test data is created, transformed using one of the two
-functions described above, and then downloaded using the
-`elm/files` package.  More details are given below.
+The test app in `examples/Main.elm` illustrates how these are used -- some test data is created, transformed using one of the two functions described above, and then downloaded using the `elm/files` package.  More details are given below.
 
 ## Tarring text files
 
-The example below shows how to use the present package with
-`elm/bytes` and `elm/file` tar a text file, then
-download the data as `test.tar`.
+The example below shows how to use the present package with`elm/bytes` and `elm/file` to tar a text file, then download the data as `test.tar`.
 
 ```
    fileRecord1 =
@@ -38,7 +33,7 @@ download the data as `test.tar`.
 
    bytes = Tar.encodeTextFiles [ ( fileRecord1, content1 ) ] |> Bytes.Encode.encode
 
-   File.Download.bytes ("test.tar") "application/x-tar" bytes
+   File.Download.bytes "test.tar" "application/x-tar" bytes
 ```
 
 To archive more files, just put more pairs `(fileRecord, content)`in the list above.
@@ -47,8 +42,7 @@ To archive more files, just put more pairs `(fileRecord, content)`in the list ab
 
 ## Tarring arbitrary files
 
-The example below shows how to make an archive for a set of files
-some of which are binary, some of which are text.
+The example below shows how to make an archive for a set of files some of which are binary, some of which are text.
 
 ```
   fileRecord_ =
@@ -72,6 +66,10 @@ some of which are binary, some of which are text.
       ]
       |> encode
 ```
+
+## Demo app
+
+For a demo, run `elm make Main.elm` in `/examples`, then click on the resulting `index.html` file.  To tar text files only, uncomment line 65 and comment out lines 66-71.
 
 ## References
 
