@@ -11,7 +11,7 @@ data. To tar a set of text files, you can use
 
 For more details, see the README. See also the demo app `./examples/Main.elm`
 
-@docs Data, encodeFiles, encodeTextFiles, defaultFileRecord`
+@docs Data, encodeFiles, encodeTextFiles, defaultFileRecord
 
 -}
 
@@ -25,7 +25,9 @@ import Octal exposing (octalEncoder)
 
 
 {-| Use `StringData String` for text data,
-`BinaryData Bytes` for binary data
+`BinaryData Bytes` for binary data, e.g.,
+`StringData "This is a test"` or
+`BinaryData someBytes`
 -}
 type Data
     = StringData String
@@ -81,7 +83,7 @@ type Link
 
 {-| Example
 
-encodeFiles [(defaultFileRecord, "This is a test"), (defaultFileRecord, "Lah di dah do day!")] |> encode == <2594 bytes> : Bytes
+encodeFiles [(defaultFileRecord, "This is a test"), (defaultFileRecord, "Lah di dah do day!")] |> Bytes.Encode.encode == <2594 bytes> : Bytes
 
 -}
 encodeTextFiles : List ( FileRecord, String ) -> Encode.Encoder
@@ -115,7 +117,7 @@ encodeTextFiles fileList =
           [ ( fileRecord1, StringData content1 )
           , ( fileRecord2, BinaryData content2 )
           ]
-          |> encode
+          |> Bytes.Encode.encode
 
       Note: `Hex` is found in `jxxcarlson/hex`
 -}
@@ -176,8 +178,9 @@ encodePaddedBytes bytes =
 {-| defaultFileRecord is a dummy FileRecord that you modify
 to suit your needs. See `/examples/Main.elm`.
 
-> encodeFileRecord defaultFileRecord |> encode |> Hex.fromBytes
-> encodeFileRecord defaultFileRecord |> encode |> width
+encodeFileRecord defaultFileRecord |> Bytes.Encode.encode |> Hex.fromBytes
+
+encodeFileRecord defaultFileRecord |> Bytes.Encode.encode |> Bytes.width
 
 -}
 defaultFileRecord : FileRecord
