@@ -1,4 +1,4 @@
-module Tar exposing (Data(..), encodeTextFiles, encodeFiles, defaultFileRecord)
+module Tar exposing (Data(..), encodeFiles, encodeTextFiles, defaultFileRecord)
 
 {-| With this package you can create tar archives. Use
 
@@ -19,10 +19,11 @@ module Tar exposing (Data(..), encodeTextFiles, encodeFiles, defaultFileRecord)
 Just put more pairs `(fileRecord, content)` in the list above to
 archive more files.
 
-@docs encodeFiles, defaultFileRecord
+@docs Data, encodeFiles, encodeTextFiles, defaultFileRecord
 
 -}
 
+-- (Data(..), encodeTextFiles, encodeFiles, defaultFileRecord, encodePaddedBytes)
 -- (encodeFiles, defaultFileRecord)
 
 import Bytes exposing (..)
@@ -32,6 +33,14 @@ import Time exposing (Posix)
 import Char
 import CheckSum
 import Octal exposing (octalEncoder)
+
+
+{-| Use `StringData String` for text data,
+`BinaryData Bytes` for binary data
+-}
+type Data
+    = StringData String
+    | BinaryData Bytes
 
 
 type alias FileRecord =
@@ -94,17 +103,37 @@ encodeTextFiles fileList =
         )
 
 
+{-|
+
+      Example
+
+      fileRecord_ =
+          Tar.defaultFileRecord
+
+      fileRecord1 =
+          { fileRecord_ | filename = "a.txt" }
+
+      content1 =
+          "One two three\n"
+
+      fileRecord2 =
+          { fileRecord_ | filename = "c.binary" }
+
+      content2 =
+          Hex.toBytes "616263646566" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
+
+      Tar.encodeFiles
+          [ ( fileRecord1, StringData content1 )
+          , ( fileRecord2, BinaryData content2 )
+          ]
+          |> encode
+-}
 encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
 encodeFiles fileList =
     Encode.sequence
         ((List.map (\item -> encodeFile (Tuple.first item) (Tuple.second item)) fileList)
             ++ [ Encode.string (normalizeString 1024 "") ]
         )
-
-
-type Data
-    = StringData String
-    | BinaryData Bytes
 
 
 encodeTextFile : FileRecord -> String -> Encode.Encoder
@@ -151,6 +180,14 @@ encodePaddedBytes bytes =
             [ Encode.bytes bytes
             , Encode.sequence <| List.repeat paddingWidth (Encode.unsignedInt8 0)
             ]
+
+
+pad : Bytes -> Encode.Encoder
+pad bytes =
+    Encode.sequence
+        [ Encode.bytes bytes
+        , Encode.unsignedInt8 0
+        ]
 
 
 {-|

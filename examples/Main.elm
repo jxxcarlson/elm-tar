@@ -60,7 +60,7 @@ initialData =
             { fileRecord_ | filename = "c.binary" }
 
         content3 =
-            Hex.toBytes "A0B1C2D3E4" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
+            Hex.toBytes "616263646566" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
     in
         -- Tar.encodeTextFiles [ ( fileRecord1, content1 ), ( fileRecord2, content2 ) ] |> encode
         Tar.encodeFiles

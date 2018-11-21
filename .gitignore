@@ -5,3 +5,4 @@ index.html
 *.tar
 examples/tmp/
 *.hex
+examples/testfiles/
