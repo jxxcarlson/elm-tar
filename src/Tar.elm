@@ -1,30 +1,25 @@
 module Tar exposing (Data(..), encodeFiles, encodeTextFiles, defaultFileRecord)
 
-{-| With this package you can create tar archives. Use
+{-| Use
 
-    ```
-    encodeFiles : List (FileRecord, String) -> Encode.Encoder
+       encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
 
-    fileRecord1 =
-        { Tar.defaultFileRecord | filename = "test123.txt" }
+to tar an arbitrary set of files, whch may contain either text or binary
+data, where
 
-    content1 =
-        "This is a test (ho ho ho).\nIt is a frabjous day!"
+      type Data
+          = StringData String
+          | BinaryData Bytes
 
-    bytes = Tar.encodeFiles [ ( fileRecord1, content1 ) ] |> Bytes.Encode.encode
+To tar a set of text files, you can use
 
-    File.Download.bytes ("test.tar") "application/x-tar" bytes
-     ```
+       encodeTextFiles : List (FileRecord, String) -> Encode.Encoder
 
-Just put more pairs `(fileRecord, content)` in the list above to
-archive more files.
+For more details, see the README. See also the demo app `./examples/Main.elm
 
-@docs Data, encodeFiles, encodeTextFiles, defaultFileRecord
+@docs Data, encodeFiles, encodeTextFiles, defaultFileRecord`
 
 -}
-
--- (Data(..), encodeTextFiles, encodeFiles, defaultFileRecord, encodePaddedBytes)
--- (encodeFiles, defaultFileRecord)
 
 import Bytes exposing (..)
 import Bytes.Decode as Decode exposing (decode)
