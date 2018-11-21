@@ -185,10 +185,10 @@ to suit your needs. It contains a lot of boilerplates
 
 Example
 
-fileRecord = { defaultFileRecord` | filename = "Test.txt" }
+fileRecord = { defaultFileRecord | filename = "Test.txt" }
 
 See the definition of FileRecord to see what other fields you
-may want to modify.
+may want to modify, or see `/examples/Main.elm`.
 
 -}
 defaultFileRecord : FileRecord
