@@ -25,13 +25,14 @@ The test app in `examples/Main.elm` illustrates how these are used -- some test 
 The example below shows how to use the present package with`elm/bytes` and `elm/file` to tar a text file, then download the data as `test.tar`.
 
 ```
+   import Tar exposing(defaultFileRecord)
    fileRecord1 =
-       { Tar.defaultFileRecord | filename = "test123.txt" }
+       { defaultFileRecord | filename = "test123.txt" }
 
    content1 =
        "This is a test (ho ho ho).\nIt is a frabjous day!"
 
-   bytes = Tar.encodeTextFiles [ ( fileRecord1, content1 ) ] |> Bytes.Encode.encode
+   bytes = sencodeTextFiles [ ( fileRecord1, content1 ) ] |> Bytes.Encode.encode
 
    File.Download.bytes "test.tar" "application/x-tar" bytes
 ```
@@ -46,7 +47,7 @@ The example below shows how to make an archive for a set of files some of which 
 
 ```
   fileRecord_ =
-      Tar.defaultFileRecord
+      defaultFileRecord
 
   fileRecord1 =
       { fileRecord_ | filename = "a.txt" }

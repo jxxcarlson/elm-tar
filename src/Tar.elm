@@ -103,8 +103,10 @@ encodeTextFiles fileList =
 
       Example
 
+      import Tar exposing(defaultFileRecord)
+
       fileRecord_ =
-          Tar.defaultFileRecord
+          defaultFileRecord
 
       fileRecord1 =
           { fileRecord_ | filename = "a.txt" }
