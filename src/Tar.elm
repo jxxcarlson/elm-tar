@@ -18,7 +18,7 @@ For more details, see the README. See also the demo app `./examples/Main.elm`
 {- (Data(..), FileRecord, encodeFiles, encodeTextFiles, defaultFileRecord) -}
 
 import Bytes exposing (..)
-import Bytes.Decode as Decode exposing (Decoder, decode)
+import Bytes.Decode as Decode exposing (Decoder, Step(..), decode)
 import Bytes.Encode as Encode exposing (encode)
 import Time exposing (Posix)
 import Char
@@ -103,6 +103,73 @@ type HeaderInfo
     | Error
 
 
+stateFromHeaderInfo : HeaderInfo -> State
+stateFromHeaderInfo headerInfo =
+    case headerInfo of
+        FileHeader fileData ->
+            Processing
+
+        NullBlock ->
+            EndOfData
+
+        Error ->
+            EndOfData
+
+
+type State
+    = Start
+    | Processing
+    | EndOfData
+
+
+type alias Output =
+    ( HeaderInfo, Data )
+
+
+type alias OutputList =
+    List Output
+
+
+
+-- type alias State = (Status, List (HeaderInfo, Data))
+
+
+tfs =
+    encodeTextFiles
+        [ ( { defaultFileRecord | filename = "one.txt" }, "One" )
+        , ( { defaultFileRecord | filename = "two.txt" }, "Two" )
+        ]
+        |> encode
+
+
+
+-- decodeFiles :  Decoder Output -> Decoder OutputList
+-- decodeFiles =
+--   Decode.loop (Start, []) (\state -> )
+
+
+fileStep : ( State, OutputList ) -> Decoder (Step ( State, OutputList ) OutputList)
+fileStep ( state, outputList ) =
+    let
+        info : OutputList -> State
+        info outputList_ =
+            case outputList_ of
+                [] ->
+                    Start
+
+                ( headerInfo_, data ) :: xs ->
+                    stateFromHeaderInfo headerInfo_
+    in
+        if state == EndOfData then
+            Decode.succeed (Done outputList)
+        else
+            let
+                newState =
+                    info outputList
+            in
+                Decode.map (\output -> Loop ( newState, output :: outputList )) decodeFile
+
+
 decodeFile : Decoder ( HeaderInfo, Data )
 decodeFile =
     decodeFirstBlock
@@ -137,7 +204,7 @@ decodeOtherBlocks headerInfo =
 
 
 textFileExtensions =
-    [ "txt", "tex" ]
+    [ "text", "txt", "tex" ]
 
 
 decodeStringBody : FileData -> Decoder ( HeaderInfo, Data )
