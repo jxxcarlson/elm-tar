@@ -2,11 +2,10 @@ module Tar
     exposing
         ( Data(..)
         , FileRecord
+        , defaultFileRecord
         , encodeFiles
-        , encodeTextFile
         , encodeTextFiles
         , extractArchive
-        , defaultFileRecord
         , testArchive
         )
 
@@ -18,6 +17,20 @@ to tar an arbitrary set of files which may contain either text or binary
 data. To tar a set of text files, you can use
 
        encodeTextFiles : List (FileRecord, String) -> Encode.Encoder
+
+Here is a complete example:
+
+      testArchive : Bytes
+      testArchive =
+          encodeTextFiles
+              [ ( { defaultFileRecord | filename = "one.txt" }, "One" )
+              , ( { defaultFileRecord | filename = "two.txt" }, "Two" )
+              ]
+              |> encode
+
+To untar an archive, imitate this example:
+
+       extractArchive testArchive
 
 For more details, see the README. See also the demo app `./examples/Main.elm`
 
