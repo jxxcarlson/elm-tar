@@ -142,10 +142,9 @@ tfs =
         |> encode
 
 
-
--- decodeFiles :  Decoder Output -> Decoder OutputList
--- decodeFiles =
---   Decode.loop (Start, []) (\state -> )
+decodeFiles : Decoder OutputList
+decodeFiles =
+    Decode.loop ( Start, [] ) fileStep
 
 
 fileStep : ( State, OutputList ) -> Decoder (Step ( State, OutputList ) OutputList)
