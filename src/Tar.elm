@@ -1,4 +1,4 @@
-module Tar exposing (Data(..), FileRecord, encodeFiles, encodeTextFiles, defaultFileRecord)
+module Tar exposing (..)
 
 {-| Use
 
@@ -15,8 +15,10 @@ For more details, see the README. See also the demo app `./examples/Main.elm`
 
 -}
 
+{- (Data(..), FileRecord, encodeFiles, encodeTextFiles, defaultFileRecord) -}
+
 import Bytes exposing (..)
-import Bytes.Decode as Decode exposing (decode)
+import Bytes.Decode as Decode exposing (Decoder, decode)
 import Bytes.Encode as Encode exposing (encode)
 import Time exposing (Posix)
 import Char
@@ -78,6 +80,146 @@ type Link
     = NormalFile
     | HardLink
     | SymbolicLink
+
+
+
+--
+-- DECODE FILES
+--
+
+
+{-| (2)
+-}
+type alias FileData =
+    { fileName : String
+    , length : Int
+    }
+
+
+{-| (6)
+-}
+decodeTextFile : Decoder ( FileData, String )
+decodeTextFile =
+    decodeFileHeader
+        |> Decode.andThen (\fileData -> decodeStringBody fileData)
+
+
+{-| (3)
+-}
+decodeFileHeader : Decoder FileData
+decodeFileHeader =
+    Decode.bytes 512
+        |> Decode.map (\bytes -> getFileData bytes)
+
+
+{-| (4)
+
+> tf |> getFileData
+> { fileName = "test.txt", length = 512 }
+
+-}
+getFileData : Bytes -> FileData
+getFileData bytes =
+    let
+        blockIsHeader =
+            isHeader_ bytes
+
+        fileName =
+            getFileName bytes
+                |> Maybe.withDefault "unknownFileName"
+
+        length =
+            getFileLength bytes
+    in
+        { fileName = fileName, length = length }
+
+
+{-| (5)
+Round integer up to nearest multiple of 512.
+-}
+round512 : Int -> Int
+round512 n =
+    let
+        residue =
+            modBy 512 n
+    in
+        if residue == 0 then
+            n
+        else
+            n + (512 - residue)
+
+
+{-| (1*)
+-}
+decodeStringBody : FileData -> Decoder ( FileData, String )
+decodeStringBody fileData =
+    Decode.string (round512 fileData.length)
+        |> Decode.map (\str -> ( fileData, (String.left fileData.length str) ))
+
+
+{-| isHeader bytes == True if and only if
+bytes has width 512 and contains the
+string "ustar"
+-}
+isHeader : Bytes -> Bool
+isHeader bytes =
+    if Bytes.width bytes == 512 then
+        isHeader_ bytes
+    else
+        False
+
+
+isHeader_ : Bytes -> Bool
+isHeader_ bytes =
+    bytes
+        |> decode (Decode.string 512)
+        |> Maybe.map (\str -> String.slice 257 262 str == "ustar")
+        |> Maybe.withDefault False
+
+
+getFileName : Bytes -> Maybe String
+getFileName bytes =
+    bytes
+        |> decode (Decode.string 100)
+        |> Maybe.map (String.replace (String.fromChar (Char.fromCode 0)) "")
+
+
+getFileLength : Bytes -> Int
+getFileLength bytes =
+    bytes
+        |> decode (Decode.string 256)
+        |> Maybe.map (String.slice 124 136)
+        |> Maybe.map (stripLeadingString "0")
+        |> Maybe.map String.trim
+        |> Maybe.andThen String.toInt
+        |> Maybe.withDefault 0
+
+
+stripLeadingString : String -> String -> String
+stripLeadingString lead str =
+    str
+        |> String.split ""
+        |> stripLeadingElement lead
+        |> String.join ""
+
+
+stripLeadingElement : a -> List a -> List a
+stripLeadingElement lead list =
+    case list of
+        [] ->
+            []
+
+        [ x ] ->
+            if lead == x then
+                []
+            else
+                [ x ]
+
+        x :: xs ->
+            if lead == x then
+                stripLeadingElement lead xs
+            else
+                x :: xs
 
 
 
