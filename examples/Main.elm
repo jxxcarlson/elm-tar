@@ -65,8 +65,9 @@ initialData =
         -- Tar.encodeTextFiles [ ( fileRecord1, content1 ), ( fileRecord2, content2 ) ] |> encode
         Tar.encodeFiles
             [ ( fileRecord1, StringData content1 )
-            , ( fileRecord2, StringData content2 )
-            , ( fileRecord3, BinaryData content3 )
+
+            -- , ( fileRecord2, StringData content2 )
+            -- , ( fileRecord3, BinaryData content3 )
             ]
             |> encode
 
