@@ -173,7 +173,15 @@ getHeaderInfo bytes =
             FileHeader (getFileData bytes)
 
         False ->
-            NullBlock
+            if (decode (Decode.string 512) bytes == Just nullString512) then
+                NullBlock
+            else
+                Error
+
+
+nullString512 : String
+nullString512 =
+    String.repeat 512 (String.fromChar (Char.fromCode 0))
 
 
 getFileExtension : String -> Maybe String
