@@ -92,6 +92,7 @@ type Link
 -}
 type alias FileData =
     { fileName : String
+    , fileExtension : Maybe String
     , length : Int
     }
 
@@ -102,18 +103,53 @@ type HeaderInfo
     | Error
 
 
-decodeFile : Decoder ( FileData, Data )
+decodeFile : Decoder ( HeaderInfo, Data )
 decodeFile =
-    decodeFileHeader
-        |> Decode.andThen (\fileData -> decodeStringBody fileData)
+    decodeFirstBlock
+        |> Decode.andThen (\headerInfo -> decodeOtherBlocks headerInfo)
 
 
-{-| (6)
--}
-decodeTextFile : Decoder ( FileData, Data )
-decodeTextFile =
-    decodeFileHeader
-        |> Decode.andThen (\fileData -> decodeStringBody fileData)
+decodeFirstBlock : Decoder HeaderInfo
+decodeFirstBlock =
+    Decode.bytes 512
+        |> Decode.map (\bytes -> getHeaderInfo bytes)
+
+
+decodeOtherBlocks : HeaderInfo -> Decoder ( HeaderInfo, Data )
+decodeOtherBlocks headerInfo =
+    case headerInfo of
+        FileHeader fileData ->
+            case fileData.fileExtension of
+                Just ext ->
+                    if List.member ext textFileExtensions then
+                        decodeStringBody fileData
+                    else
+                        decodeBinaryBody fileData
+
+                Nothing ->
+                    decodeBinaryBody fileData
+
+        NullBlock ->
+            Decode.succeed ( headerInfo, StringData "NullBlock" )
+
+        Error ->
+            Decode.succeed ( headerInfo, StringData "Error" )
+
+
+textFileExtensions =
+    [ "txt", "tex" ]
+
+
+decodeStringBody : FileData -> Decoder ( HeaderInfo, Data )
+decodeStringBody fileData =
+    Decode.string (round512 fileData.length)
+        |> Decode.map (\str -> ( FileHeader fileData, StringData (String.left fileData.length str) ))
+
+
+decodeBinaryBody : FileData -> Decoder ( HeaderInfo, Data )
+decodeBinaryBody fileData =
+    Decode.bytes (round512 fileData.length)
+        |> Decode.map (\bytes -> ( FileHeader fileData, BinaryData bytes ))
 
 
 {-| (3)
@@ -140,6 +176,22 @@ getHeaderInfo bytes =
             NullBlock
 
 
+getFileExtension : String -> Maybe String
+getFileExtension str =
+    let
+        fileParts =
+            str
+                |> String.split "."
+                |> List.reverse
+    in
+        case List.length fileParts > 1 of
+            True ->
+                List.head fileParts
+
+            False ->
+                Nothing
+
+
 getFileData : Bytes -> FileData
 getFileData bytes =
     let
@@ -150,10 +202,13 @@ getFileData bytes =
             getFileName bytes
                 |> Maybe.withDefault "unknownFileName"
 
+        fileExtension =
+            getFileExtension fileName
+
         length =
             getFileLength bytes
     in
-        { fileName = fileName, length = length }
+        { fileName = fileName, fileExtension = fileExtension, length = length }
 
 
 {-| (5)
@@ -169,14 +224,6 @@ round512 n =
             n
         else
             n + (512 - residue)
-
-
-{-| (1*)
--}
-decodeStringBody : FileData -> Decoder ( FileData, Data )
-decodeStringBody fileData =
-    Decode.string (round512 fileData.length)
-        |> Decode.map (\str -> ( fileData, StringData (String.left fileData.length str) ))
 
 
 {-| isHeader bytes == True if and only if
