@@ -96,9 +96,21 @@ type alias FileData =
     }
 
 
+type HeaderInfo
+    = FileHeader FileData
+    | NullBlock
+    | Error
+
+
+decodeFile : Decoder ( FileData, Data )
+decodeFile =
+    decodeFileHeader
+        |> Decode.andThen (\fileData -> decodeStringBody fileData)
+
+
 {-| (6)
 -}
-decodeTextFile : Decoder ( FileData, String )
+decodeTextFile : Decoder ( FileData, Data )
 decodeTextFile =
     decodeFileHeader
         |> Decode.andThen (\fileData -> decodeStringBody fileData)
@@ -118,6 +130,16 @@ decodeFileHeader =
 > { fileName = "test.txt", length = 512 }
 
 -}
+getHeaderInfo : Bytes -> HeaderInfo
+getHeaderInfo bytes =
+    case isHeader_ bytes of
+        True ->
+            FileHeader (getFileData bytes)
+
+        False ->
+            NullBlock
+
+
 getFileData : Bytes -> FileData
 getFileData bytes =
     let
@@ -151,10 +173,10 @@ round512 n =
 
 {-| (1*)
 -}
-decodeStringBody : FileData -> Decoder ( FileData, String )
+decodeStringBody : FileData -> Decoder ( FileData, Data )
 decodeStringBody fileData =
     Decode.string (round512 fileData.length)
-        |> Decode.map (\str -> ( fileData, (String.left fileData.length str) ))
+        |> Decode.map (\str -> ( fileData, StringData (String.left fileData.length str) ))
 
 
 {-| isHeader bytes == True if and only if
