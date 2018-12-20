@@ -1,4 +1,14 @@
-module Tar exposing (..)
+module Tar
+    exposing
+        ( Data(..)
+        , FileRecord
+        , encodeFiles
+        , encodeTextFile
+        , encodeTextFiles
+        , extractArchive
+        , defaultFileRecord
+        , testArchive
+        )
 
 {-| Use
 
@@ -11,11 +21,9 @@ data. To tar a set of text files, you can use
 
 For more details, see the README. See also the demo app `./examples/Main.elm`
 
-@docs Data, FileRecord, encodeFiles, encodeTextFiles, defaultFileRecord
+@docs Data, FileRecord, decodeFiles, encodeFiles, encodeTextFiles, defaultFileRecord
 
 -}
-
-{- (Data(..), FileRecord, encodeFiles, encodeTextFiles, defaultFileRecord) -}
 
 import Bytes exposing (..)
 import Bytes.Decode as Decode exposing (Decoder, Step(..), decode)
@@ -103,6 +111,19 @@ type HeaderInfo
     | Error
 
 
+getFileDataFromHeaderInfo : HeaderInfo -> FileData
+getFileDataFromHeaderInfo headerInfo =
+    case headerInfo of
+        FileHeader fileData ->
+            fileData
+
+        _ ->
+            { fileName = "Unknown file name"
+            , fileExtension = Nothing
+            , length = 0
+            }
+
+
 stateFromHeaderInfo : HeaderInfo -> State
 stateFromHeaderInfo headerInfo =
     case headerInfo of
@@ -130,11 +151,24 @@ type alias OutputList =
     List Output
 
 
+headerInfoOfOutput : Output -> HeaderInfo
+headerInfoOfOutput ( headerInfo, output ) =
+    headerInfo
+
+
+simplifyOutput : Output -> ( FileData, Data )
+simplifyOutput ( headerInfo, data ) =
+    ( getFileDataFromHeaderInfo headerInfo, data )
+
+
 
 -- type alias State = (Status, List (HeaderInfo, Data))
 
 
-tfs =
+{-| A small tar archive for testing purposes
+-}
+testArchive : Bytes
+testArchive =
     encodeTextFiles
         [ ( { defaultFileRecord | filename = "one.txt" }, "One" )
         , ( { defaultFileRecord | filename = "two.txt" }, "Two" )
@@ -142,6 +176,23 @@ tfs =
         |> encode
 
 
+extractArchive : Bytes -> List ( FileData, Data )
+extractArchive bytes =
+    bytes
+        |> decode decodeFiles
+        |> Maybe.withDefault []
+        |> List.filter (\x -> List.member (headerInfoOfOutput x) [ NullBlock, Error ] |> not)
+        |> List.map simplifyOutput
+        |> List.reverse
+
+
+{-| Example:
+
+> import Bytes.Decode exposing(decode)
+> import Tar exposing(..)
+> decode decodeFiles testArchive
+
+-}
 decodeFiles : Decoder OutputList
 decodeFiles =
     Decode.loop ( Start, [] ) fileStep
