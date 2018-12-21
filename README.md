@@ -1,12 +1,57 @@
 # Elm-Tar
 
-With this package you can both create and extract tar archives.  Use
+With this package you can both create and extract tar archives.
+
+
+Example 1: Create a tar archive
+
+```
+> import Tar exposing(..)
+
+> data1 = ( { defaultFileRecord | filename = "one.txt" }, StringData "One" )
+> data2 = ( { defaultFileRecord | filename = "two.txt" }, StringData "Two" )
+
+> myArchive = createArchive [data1, data2]
+  <3072 bytes> : Bytes.Bytes
+```
+
+Example2: Extract a tar archive
+```
+    extractArchive myArchive
+```
+
+## Data Types
+
+Use the `Data` type to tag strings and
+binary data for creating archives.
+
+```
+  type Data
+      = StringData String
+      | BinaryData Bytes
+```
+
+When you extract an archive, you create
+a value of type `List (FileData, Data)`, where
+
+```
+  type alias FileData =
+      { fileName : String
+      , fileExtension : Maybe String
+      , length : Int
+      }
+```
+
+## Tarring text files
+
+If you want to work closer to the metal, do this:
 
 ```
    encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
 ```
 to tar an arbitrary set of files. The files
 may contain either text or binary data, where
+
 
 ```
   type Data
@@ -20,24 +65,6 @@ To tar a set of text files, you can use
 ```
 The test app in `examples/Main.elm` illustrates how these are used -- some test data is created, transformed using one of the two functions described above, and then downloaded using the `elm/files` package.  More details are given below.
 
-Use
-
-```
-    extractArcive tarArhive
-```
-
-to extract a tar archiv.  The result is a list of elements of type `(FileData, Data)`,
-where
-
-```
-  type alias FileData =
-      { fileName : String
-      , fileExtension : Maybe String
-      , length : Int
-      }
-```
-
-## Tarring text files
 
 The example below shows how to use the present package with`elm/bytes` and `elm/file` to tar a text file, then download the data as `test.tar`.
 
