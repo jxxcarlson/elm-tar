@@ -4,7 +4,9 @@ module Tar
         , FileRecord
         , defaultFileRecord
         , encodeFiles
+        , encodeTextFile
         , encodeTextFiles
+        , createArchive
         , extractArchive
         , testArchive
         )
@@ -34,7 +36,7 @@ To untar an archive, imitate this example:
 
 For more details, see the README. See also the demo app `./examples/Main.elm`
 
-@docs Data, FileRecord, decodeFiles, encodeFiles, encodeTextFiles, defaultFileRecord
+@docs Data, FileRecord, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultFileRecord
 
 -}
 
@@ -45,6 +47,9 @@ import Time exposing (Posix)
 import Char
 import CheckSum
 import Octal exposing (octalEncoder)
+
+
+{- Types For creating a tar archive -}
 
 
 {-| Use `StringData String` for text data,
@@ -103,14 +108,6 @@ type Link
     | SymbolicLink
 
 
-
---
--- DECODE FILES
---
-
-
-{-| (2)
--}
 type alias FileData =
     { fileName : String
     , fileExtension : Maybe String
@@ -118,36 +115,14 @@ type alias FileData =
     }
 
 
+
+{- For extracting a tar archive -}
+
+
 type HeaderInfo
     = FileHeader FileData
     | NullBlock
     | Error
-
-
-getFileDataFromHeaderInfo : HeaderInfo -> FileData
-getFileDataFromHeaderInfo headerInfo =
-    case headerInfo of
-        FileHeader fileData ->
-            fileData
-
-        _ ->
-            { fileName = "Unknown file name"
-            , fileExtension = Nothing
-            , length = 0
-            }
-
-
-stateFromHeaderInfo : HeaderInfo -> State
-stateFromHeaderInfo headerInfo =
-    case headerInfo of
-        FileHeader fileData ->
-            Processing
-
-        NullBlock ->
-            EndOfData
-
-        Error ->
-            EndOfData
 
 
 type State
@@ -164,20 +139,6 @@ type alias OutputList =
     List Output
 
 
-headerInfoOfOutput : Output -> HeaderInfo
-headerInfoOfOutput ( headerInfo, output ) =
-    headerInfo
-
-
-simplifyOutput : Output -> ( FileData, Data )
-simplifyOutput ( headerInfo, data ) =
-    ( getFileDataFromHeaderInfo headerInfo, data )
-
-
-
--- type alias State = (Status, List (HeaderInfo, Data))
-
-
 {-| A small tar archive for testing purposes
 -}
 testArchive : Bytes
@@ -189,6 +150,18 @@ testArchive =
         |> encode
 
 
+
+{- vvv EXTRACT TAR ACHIVE vvv -}
+
+
+{-| Try
+
+> import Tar exposing(..)
+> extractArchive testArchive
+
+to test this function
+
+-}
 extractArchive : Bytes -> List ( FileData, Data )
 extractArchive bytes =
     bytes
@@ -197,6 +170,10 @@ extractArchive bytes =
         |> List.filter (\x -> List.member (headerInfoOfOutput x) [ NullBlock, Error ] |> not)
         |> List.map simplifyOutput
         |> List.reverse
+
+
+
+{- Decoders -}
 
 
 {-| Example:
@@ -266,8 +243,10 @@ decodeOtherBlocks headerInfo =
             Decode.succeed ( headerInfo, StringData "Error" )
 
 
-textFileExtensions =
-    [ "text", "txt", "tex" ]
+decodeFileHeader : Decoder FileData
+decodeFileHeader =
+    Decode.bytes 512
+        |> Decode.map (\bytes -> getFileData bytes)
 
 
 decodeStringBody : FileData -> Decoder ( HeaderInfo, Data )
@@ -282,19 +261,10 @@ decodeBinaryBody fileData =
         |> Decode.map (\bytes -> ( FileHeader fileData, BinaryData bytes ))
 
 
-{-| (3)
--}
-decodeFileHeader : Decoder FileData
-decodeFileHeader =
-    Decode.bytes 512
-        |> Decode.map (\bytes -> getFileData bytes)
-
-
-{-| (4)
+{-|
 
 > tf |> getFileData
 > { fileName = "test.txt", length = 512 }
-
 -}
 getHeaderInfo : Bytes -> HeaderInfo
 getHeaderInfo bytes =
@@ -312,6 +282,10 @@ getHeaderInfo bytes =
 nullString512 : String
 nullString512 =
     String.repeat 512 (String.fromChar (Char.fromCode 0))
+
+
+textFileExtensions =
+    [ "text", "txt", "tex" ]
 
 
 getFileExtension : String -> Maybe String
@@ -349,8 +323,11 @@ getFileData bytes =
         { fileName = fileName, fileExtension = fileExtension, length = length }
 
 
-{-| (5)
-Round integer up to nearest multiple of 512.
+
+{- HELPERS FOR DECODING ARCHVES -}
+
+
+{-| Round integer up to nearest multiple of 512.
 -}
 round512 : Int -> Int
 round512 n =
@@ -429,10 +406,59 @@ stripLeadingElement lead list =
                 x :: xs
 
 
+getFileDataFromHeaderInfo : HeaderInfo -> FileData
+getFileDataFromHeaderInfo headerInfo =
+    case headerInfo of
+        FileHeader fileData ->
+            fileData
 
---
--- ENCODE FILES
---
+        _ ->
+            { fileName = "Unknown file name"
+            , fileExtension = Nothing
+            , length = 0
+            }
+
+
+stateFromHeaderInfo : HeaderInfo -> State
+stateFromHeaderInfo headerInfo =
+    case headerInfo of
+        FileHeader fileData ->
+            Processing
+
+        NullBlock ->
+            EndOfData
+
+        Error ->
+            EndOfData
+
+
+headerInfoOfOutput : Output -> HeaderInfo
+headerInfoOfOutput ( headerInfo, output ) =
+    headerInfo
+
+
+simplifyOutput : Output -> ( FileData, Data )
+simplifyOutput ( headerInfo, data ) =
+    ( getFileDataFromHeaderInfo headerInfo, data )
+
+
+
+{- vvv CREATE TAR ACHIVE vvv -}
+
+
+{-| Example:
+
+> data1 = ( { defaultFileRecord | filename = "one.txt" }, StringData "One" )
+> data2 = ( { defaultFileRecord | filename = "two.txt" }, StringData "Two" )
+> createArchive [data1, data2]
+
+> createArchive [data1, data2]
+> <3072 bytes> : Bytes.Bytes
+
+-}
+createArchive : List ( FileRecord, Data ) -> Bytes
+createArchive dataList =
+    encodeFiles dataList |> encode
 
 
 {-| Example
@@ -485,6 +511,12 @@ encodeFiles fileList =
         )
 
 
+{-| Example:
+
+> encodeTextFile defaultFileRecord "Test!" |> encode
+> <1024 bytes> : Bytes.Bytes
+
+-}
 encodeTextFile : FileRecord -> String -> Encode.Encoder
 encodeTextFile fileRecord_ contents =
     let
@@ -529,68 +561,6 @@ encodePaddedBytes bytes =
             [ Encode.bytes bytes
             , Encode.sequence <| List.repeat paddingWidth (Encode.unsignedInt8 0)
             ]
-
-
-{-| defaultFileRecord is a dummy FileRecord that you modify
-to suit your needs. It contains a lot of boilerplates
-
-Example
-
-fileRecord = { defaultFileRecord | filename = "Test.txt" }
-
-See the definition of FileRecord to see what other fields you
-may want to modify, or see `/examples/Main.elm`.
-
--}
-defaultFileRecord : FileRecord
-defaultFileRecord =
-    FileRecord
-        "test.txt"
-        blankMode
-        501
-        20
-        123
-        1542665285
-        NormalFile
-        ""
-        "anonymous"
-        "staff"
-        ""
-
-
-{-| Add zeros at end of file to make its length a multiple of 512.
--}
-padContents : String -> String
-padContents str =
-    let
-        paddingLength =
-            modBy 512 (String.length str) |> (\x -> 512 - x)
-
-        nullString =
-            String.fromChar (Char.fromCode 0)
-
-        padding =
-            String.repeat paddingLength nullString
-    in
-        str ++ padding
-
-
-
---
--- ENCODE FILE RECORD
---
-
-
-encodedSpace =
-    Encode.string " "
-
-
-encodedZero =
-    Encode.string "0"
-
-
-encodedNull =
-    Encode.string (String.fromChar (Char.fromCode 0))
 
 
 encodeFileRecord : FileRecord -> Encode.Encoder
@@ -641,12 +611,6 @@ preliminaryEncodeFileRecord fileRecord =
         ]
 
 
-
---
--- ENCODERS
---
-
-
 linkEncoder : Link -> Encode.Encoder
 linkEncoder link =
     case link of
@@ -658,23 +622,6 @@ linkEncoder link =
 
         SymbolicLink ->
             Encode.string "2"
-
-
-blankMode =
-    Mode [ Read, Write ] [ Read ] [ Read ] [ SGID ]
-
-
-encodeFilePermission : FilePermission -> Int
-encodeFilePermission fp =
-    case fp of
-        Read ->
-            4
-
-        Write ->
-            2
-
-        Execute ->
-            1
 
 
 encodeFilePermissions : List FilePermission -> Encode.Encoder
@@ -737,6 +684,83 @@ encodeInt12 n =
         , Encode.unsignedInt32 BE 0
         , Encode.unsignedInt32 BE n
         ]
+
+
+{-| defaultFileRecord is a dummy FileRecord that you modify
+to suit your needs. It contains a lot of boilerplates
+
+Example
+
+fileRecord = { defaultFileRecord | filename = "Test.txt" }
+
+See the definition of FileRecord to see what other fields you
+may want to modify, or see `/examples/Main.elm`.
+
+-}
+defaultFileRecord : FileRecord
+defaultFileRecord =
+    FileRecord
+        "test.txt"
+        blankMode
+        501
+        20
+        123
+        1542665285
+        NormalFile
+        ""
+        "anonymous"
+        "staff"
+        ""
+
+
+
+{- HELPERS FOR ENCODEING FILES -}
+
+
+{-| Add zeros at end of file to make its length a multiple of 512.
+-}
+padContents : String -> String
+padContents str =
+    let
+        paddingLength =
+            modBy 512 (String.length str) |> (\x -> 512 - x)
+
+        nullString =
+            String.fromChar (Char.fromCode 0)
+
+        padding =
+            String.repeat paddingLength nullString
+    in
+        str ++ padding
+
+
+encodedSpace =
+    Encode.string " "
+
+
+encodedZero =
+    Encode.string "0"
+
+
+encodedNull =
+    Encode.string (String.fromChar (Char.fromCode 0))
+
+
+blankMode =
+    Mode [ Read, Write ] [ Read ] [ Read ] [ SGID ]
+
+
+encodeFilePermission : FilePermission -> Int
+encodeFilePermission fp =
+    case fp of
+        Read ->
+            4
+
+        Write ->
+            2
+
+        Execute ->
+            1
 
 
 {-| return string of length n, truncated

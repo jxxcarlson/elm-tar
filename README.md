@@ -1,6 +1,6 @@
 # Elm-Tar
 
-With this package you can create tar archives.  Use
+With this package you can both create and extract tar archives.  Use
 
 ```
    encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
@@ -19,6 +19,23 @@ To tar a set of text files, you can use
    encodeTextFiles : List (FileRecord, String) -> Encode.Encoder
 ```
 The test app in `examples/Main.elm` illustrates how these are used -- some test data is created, transformed using one of the two functions described above, and then downloaded using the `elm/files` package.  More details are given below.
+
+Use
+
+```
+    extractArcive tarArhive
+```
+
+to extract a tar archiv.  The result is a list of elements of type `(FileData, Data)`,
+where
+
+```
+  type alias FileData =
+      { fileName : String
+      , fileExtension : Maybe String
+      , length : Int
+      }
+```
 
 ## Tarring text files
 
