@@ -3,7 +3,7 @@
 With this package you can both create and extract tar archives.
 
 
-Example 1: Create a tar archive
+**Example 1:** Create a tar archive
 
 ```
 > import Tar exposing(..)
@@ -15,7 +15,7 @@ Example 1: Create a tar archive
   <3072 bytes> : Bytes.Bytes
 ```
 
-Example2: Extract a tar archive
+**Example 2:** Extract a tar archive
 ```
     extractArchive myArchive
 ```
@@ -23,7 +23,7 @@ Example2: Extract a tar archive
 ## Data Types
 
 Use the `Data` type to tag strings and
-binary data for creating archives.
+binary data for creating archives:
 
 ```
   type Data
