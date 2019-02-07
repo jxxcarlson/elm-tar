@@ -1,32 +1,15 @@
 # Elm-Tar
 
 With this package you can both create and extract tar archives.  Use
-
 ```
-   encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
-```
-to tar an arbitrary set of files. The files
-may contain either text or binary data, where
-
-```
-  type Data
-      = StringData String
-      | BinaryData Bytes
-```
-To tar a set of text files, you can use
-
-```
-   encodeTextFiles : List (FileRecord, String) -> Encode.Encoder
-```
-The test app in `examples/Main.elm` illustrates how these are used -- some test data is created, transformed using one of the two functions described above, and then downloaded using the `elm/files` package.  More details are given below.
-
+   createArchive []
 Use
 
 ```
-    extractArcive tarArchive
+    extractArchive tarArchive
 ```
 
-to extract a tar archive.  The result is a list of elements of type `(FileRecord, Data)`.
+to extract a tar archive.  The result is a list of elements of type `(MetaData, Data)`.
 
 ## Tarring text files
 
@@ -34,13 +17,13 @@ The example below shows how to use the present package with`elm/bytes` and `elm/
 
 ```
    import Tar exposing(defaultFileRecord)
-   fileRecord1 =
+   fileRecord =
        { defaultFileRecord | filename = "test123.txt" }
 
-   content1 =
+   content =
        "This is a test (ho ho ho).\nIt is a frabjous day!"
 
-   bytes = sencodeTextFiles [ ( fileRecord1, content1 ) ] |> Bytes.Encode.encode
+   bytes = encodeTextFiles [ ( fileRecord, content ) ] |> Bytes.Encode.encode
 
    File.Download.bytes "test.tar" "application/x-tar" bytes
 ```
@@ -67,7 +50,7 @@ The example below shows how to make an archive for a set of files some of which 
       { fileRecord_ | filename = "b.binary" }
 
   content2 =
-      Hex.toBytes "616263646566" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
+      Hex.toBytes "0123456" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
 
   Tar.encodeFiles
       [ ( fileRecord1, StringData content1 )
@@ -80,7 +63,7 @@ For `Hex`, see `jxxcarlson/hex`.
 
 ## Demo app
 
-For a demo, run `elm make Main.elm` in `/examples`, then click on the resulting `index.html` file.  To tar text files only, uncomment line 65 and comment out lines 66-71.
+For a demo, run `elm make Main.elm` in `/examples`, then click on the resulting `index.html` file.  
 
 ## References
 

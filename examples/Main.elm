@@ -43,7 +43,7 @@ initialData : Bytes
 initialData =
     let
         fileRecord_ =
-            Tar.defaultFileRecord
+            Tar.defaultMetadata
 
         fileRecord1 =
             { fileRecord_ | filename = "a.txt" }

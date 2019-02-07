@@ -1,31 +1,17 @@
-module Tar exposing (Data(..), FileRecord, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultFileRecord)
+module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
 
 {-| Use
 
-       encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
+       createArchive : List ( MetaData, Data ) -> Bytes
 
-to tar an arbitrary set of files which may contain either text or binary
-data. To tar a set of text files, you can use
-
-       encodeTextFiles : List (FileRecord, String) -> Encode.Encoder
-
-Here is a complete example:
-
-      testArchive : Bytes
-      testArchive =
-          encodeTextFiles
-              [ ( { defaultFileRecord | filename = "one.txt" }, "One" )
-              , ( { defaultFileRecord | filename = "two.txt" }, "Two" )
-              ]
-              |> encode
-
-To untar an archive, imitate this example:
+to create4 a tar archive from arbitrary set of files which may contain either text or binary
+data. To extract files from an archive, imitate this example:
 
        extractArchive testArchive
 
 For more details, see the README. See also the demo app `./examples/Main.elm`
 
-@docs Data, FileRecord, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultFileRecord
+@docs Data, MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
 
 -}
 
@@ -52,12 +38,12 @@ type Data
     | BinaryData Bytes
 
 
-{-| A FileRecord contains the information needed for
-tar to construct the header for the assoicated file
-in the tar archive. You may use `defaultFileRecord` as
+{-| A MetaData value contains the information, e.g.,
+file name and file length, needed to construct the header
+for a file in the tar archive. You may use `defaultMetadata` as
 a starting point, modifying only what is needed.
 -}
-type alias FileRecord =
+type alias MetaData =
     { filename : String
     , mode : Mode
     , ownerID : Int
@@ -102,23 +88,23 @@ type Link
 {- For extracting a tar archive -}
 
 
-type HeaderInfo
-    = FileHeader FileHeaderInfo
+type BlockInfo
+    = FileInfo ExtendedMetaData
     | NullBlock
     | Error
 
 
-type FileHeaderInfo
-    = FileHeaderInfo FileRecord (Maybe String)
+type ExtendedMetaData
+    = ExtendedMetaData MetaData (Maybe String)
 
 
-fileSize : FileHeaderInfo -> Int
-fileSize (FileHeaderInfo fileRecord _) =
-    fileRecord.fileSize
+fileSize : ExtendedMetaData -> Int
+fileSize (ExtendedMetaData metaData _) =
+    metaData.fileSize
 
 
-fileExtension : FileHeaderInfo -> Maybe String
-fileExtension (FileHeaderInfo fileRecord ext) =
+fileExtension : ExtendedMetaData -> Maybe String
+fileExtension (ExtendedMetaData metaData ext) =
     ext
 
 
@@ -129,7 +115,7 @@ type State
 
 
 type alias Output =
-    ( HeaderInfo, Data )
+    ( BlockInfo, Data )
 
 
 type alias OutputList =
@@ -141,8 +127,8 @@ type alias OutputList =
 testArchive : Bytes
 testArchive =
     encodeTextFiles
-        [ ( { defaultFileRecord | filename = "one.txt" }, "One" )
-        , ( { defaultFileRecord | filename = "two.txt" }, "Two" )
+        [ ( { defaultMetadata | filename = "one.txt" }, "One" )
+        , ( { defaultMetadata | filename = "two.txt" }, "Two" )
         ]
         |> encode
 
@@ -159,12 +145,12 @@ testArchive =
 to test this function
 
 -}
-extractArchive : Bytes -> List ( FileRecord, Data )
+extractArchive : Bytes -> List ( MetaData, Data )
 extractArchive bytes =
     bytes
         |> decode decodeFiles
         |> Maybe.withDefault []
-        |> List.filter (\x -> List.member (headerInfoOfOutput x) [ NullBlock, Error ] |> not)
+        |> List.filter (\x -> List.member (blockInfoOfOuput x) [ NullBlock, Error ] |> not)
         |> List.map simplifyOutput
         |> List.reverse
 
@@ -195,7 +181,7 @@ fileStep ( state, outputList ) =
                     Start
 
                 ( headerInfo_, data ) :: xs ->
-                    stateFromHeaderInfo headerInfo_
+                    stateFromBlockInfo headerInfo_
     in
     if state == EndOfData then
         Decode.succeed (Done outputList)
@@ -208,32 +194,32 @@ fileStep ( state, outputList ) =
         Decode.map (\output -> Loop ( newState, output :: outputList )) decodeFile
 
 
-decodeFile : Decoder ( HeaderInfo, Data )
+decodeFile : Decoder ( BlockInfo, Data )
 decodeFile =
     decodeFirstBlock
-        |> Decode.andThen (\headerInfo -> decodeOtherBlocks headerInfo)
+        |> Decode.andThen (\blockInfo -> decodeOtherBlocks blockInfo)
 
 
-decodeFirstBlock : Decoder HeaderInfo
+decodeFirstBlock : Decoder BlockInfo
 decodeFirstBlock =
     Decode.bytes 512
-        |> Decode.map (\bytes -> getHeaderInfo bytes)
+        |> Decode.map (\bytes -> getBlockInfo bytes)
 
 
-decodeOtherBlocks : HeaderInfo -> Decoder ( HeaderInfo, Data )
+decodeOtherBlocks : BlockInfo -> Decoder ( BlockInfo, Data )
 decodeOtherBlocks headerInfo =
     case headerInfo of
-        FileHeader (FileHeaderInfo fileRecord maybeExtension) ->
+        FileInfo (ExtendedMetaData fileRecord maybeExtension) ->
             case maybeExtension of
                 Just ext ->
                     if List.member ext textFileExtensions then
-                        decodeStringBody (FileHeaderInfo fileRecord maybeExtension)
+                        decodeStringBody (ExtendedMetaData fileRecord maybeExtension)
 
                     else
-                        decodeBinaryBody (FileHeaderInfo fileRecord maybeExtension)
+                        decodeBinaryBody (ExtendedMetaData fileRecord maybeExtension)
 
                 Nothing ->
-                    decodeBinaryBody (FileHeaderInfo fileRecord maybeExtension)
+                    decodeBinaryBody (ExtendedMetaData fileRecord maybeExtension)
 
         NullBlock ->
             Decode.succeed ( NullBlock, StringData "NullBlock" )
@@ -242,37 +228,37 @@ decodeOtherBlocks headerInfo =
             Decode.succeed ( Error, StringData "Error" )
 
 
-decodeStringBody : FileHeaderInfo -> Decoder ( HeaderInfo, Data )
+decodeStringBody : ExtendedMetaData -> Decoder ( BlockInfo, Data )
 decodeStringBody fileHeaderInfo =
     let
-        (FileHeaderInfo fileRecord maybeExtension) =
+        (ExtendedMetaData fileRecord maybeExtension) =
             fileHeaderInfo
     in
     Decode.string (round512 fileRecord.fileSize)
-        |> Decode.map (\str -> ( FileHeader fileHeaderInfo, StringData (String.left fileRecord.fileSize str) ))
+        |> Decode.map (\str -> ( FileInfo fileHeaderInfo, StringData (String.left fileRecord.fileSize str) ))
 
 
-decodeBinaryBody : FileHeaderInfo -> Decoder ( HeaderInfo, Data )
+decodeBinaryBody : ExtendedMetaData -> Decoder ( BlockInfo, Data )
 decodeBinaryBody fileHeaderInfo =
     let
-        (FileHeaderInfo fileRecord maybeExtension) =
+        (ExtendedMetaData fileRecord maybeExtension) =
             fileHeaderInfo
     in
     Decode.bytes (round512 fileRecord.fileSize)
-        |> Decode.map (\bytes -> ( FileHeader fileHeaderInfo, BinaryData bytes ))
+        |> Decode.map (\bytes -> ( FileInfo fileHeaderInfo, BinaryData bytes ))
 
 
 {-|
 
-> tf |> getFileHeaderInfo
+> tf |> getBlockInfo
 > { fileName = "test.txt", length = 512 }
 
 -}
-getHeaderInfo : Bytes -> HeaderInfo
-getHeaderInfo bytes =
+getBlockInfo : Bytes -> BlockInfo
+getBlockInfo bytes =
     case isHeader_ bytes of
         True ->
-            FileHeader (getFileHeaderInfo bytes)
+            FileInfo (getFileHeaderInfo bytes)
 
         False ->
             if decode (Decode.string 512) bytes == Just nullString512 then
@@ -307,7 +293,7 @@ getFileExtension str =
             Nothing
 
 
-getFileHeaderInfo : Bytes -> FileHeaderInfo
+getFileHeaderInfo : Bytes -> ExtendedMetaData
 getFileHeaderInfo bytes =
     let
         blockIsHeader =
@@ -324,12 +310,12 @@ getFileHeaderInfo bytes =
             getFileLength bytes
 
         fileRecord =
-            { defaultFileRecord
+            { defaultMetadata
                 | filename = fileName
                 , fileSize = length
             }
     in
-    FileHeaderInfo fileRecord fileExtension_
+    ExtendedMetaData fileRecord fileExtension_
 
 
 
@@ -419,20 +405,20 @@ stripLeadingElement lead list =
                 x :: xs
 
 
-getFileDataFromHeaderInfo : HeaderInfo -> FileRecord
+getFileDataFromHeaderInfo : BlockInfo -> MetaData
 getFileDataFromHeaderInfo headerInfo =
     case headerInfo of
-        FileHeader (FileHeaderInfo fileRecord _) ->
+        FileInfo (ExtendedMetaData fileRecord _) ->
             fileRecord
 
         _ ->
-            defaultFileRecord
+            defaultMetadata
 
 
-stateFromHeaderInfo : HeaderInfo -> State
-stateFromHeaderInfo headerInfo =
-    case headerInfo of
-        FileHeader _ ->
+stateFromBlockInfo : BlockInfo -> State
+stateFromBlockInfo blockInfo =
+    case blockInfo of
+        FileInfo _ ->
             Processing
 
         NullBlock ->
@@ -442,14 +428,14 @@ stateFromHeaderInfo headerInfo =
             EndOfData
 
 
-headerInfoOfOutput : Output -> HeaderInfo
-headerInfoOfOutput ( headerInfo, output ) =
-    headerInfo
+blockInfoOfOuput : Output -> BlockInfo
+blockInfoOfOuput ( blockInfo, output ) =
+    blockInfo
 
 
-simplifyOutput : Output -> ( FileRecord, Data )
-simplifyOutput ( headerInfo, data ) =
-    ( getFileDataFromHeaderInfo headerInfo, data )
+simplifyOutput : Output -> ( MetaData, Data )
+simplifyOutput ( blockInfo, data ) =
+    ( getFileDataFromHeaderInfo blockInfo, data )
 
 
 
@@ -458,25 +444,25 @@ simplifyOutput ( headerInfo, data ) =
 
 {-| Example:
 
-> data1 = ( { defaultFileRecord | filename = "one.txt" }, StringData "One" )
-> data2 = ( { defaultFileRecord | filename = "two.txt" }, StringData "Two" )
+> data1 = ( { defaultMetadata | filename = "one.txt" }, StringData "One" )
+> data2 = ( { defaultMetadata | filename = "two.txt" }, StringData "Two" )
 > createArchive [data1, data2]
 
 > createArchive [data1, data2]
 > <3072 bytes> : Bytes.Bytes
 
 -}
-createArchive : List ( FileRecord, Data ) -> Bytes
+createArchive : List ( MetaData, Data ) -> Bytes
 createArchive dataList =
     encodeFiles dataList |> encode
 
 
 {-| Example
 
-encodeFiles [(defaultFileRecord, "This is a test"), (defaultFileRecord, "Lah di dah do day!")] |> Bytes.Encode.encode == <2594 bytes> : Bytes
+encodeFiles [(defaultMetadata, "This is a test"), (defaultMetadata, "Lah di dah do day!")] |> Bytes.Encode.encode == <2594 bytes> : Bytes
 
 -}
-encodeTextFiles : List ( FileRecord, String ) -> Encode.Encoder
+encodeTextFiles : List ( MetaData, String ) -> Encode.Encoder
 encodeTextFiles fileList =
     Encode.sequence
         (List.map (\item -> encodeTextFile (Tuple.first item) (Tuple.second item)) fileList
@@ -488,33 +474,33 @@ encodeTextFiles fileList =
 
       Example
 
-      import Tar exposing(defaultFileRecord)
+      import Tar exposing(defaultMetadata)
 
-      fileRecord_ =
-          defaultFileRecord
+      metaData_ =
+          defaultMetadata
 
-      fileRecord1 =
-          { fileRecord_ | filename = "a.txt" }
+      metaData1 =
+          { metaData_ | filename = "a.txt" }
 
       content1 =
           "One two three\n"
 
-      fileRecord2 =
-          { fileRecord_ | filename = "c.binary" }
+      metaData2
+          { metaData_ | filename = "c.binary" }
 
       content2 =
-          Hex.toBytes "616263646566" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
+          Hex.toBytes "1234" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
 
       Tar.encodeFiles
-          [ ( fileRecord1, StringData content1 )
-          , ( fileRecord2, BinaryData content2 )
+          [ ( metaData1, StringData content1 )
+          , ( metaData2, BinaryData content2 )
           ]
           |> Bytes.Encode.encode
 
       Note: `Hex` is found in `jxxcarlson/hex`
 
 -}
-encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
+encodeFiles : List ( MetaData, Data ) -> Encode.Encoder
 encodeFiles fileList =
     Encode.sequence
         (List.map (\item -> encodeFile (Tuple.first item) (Tuple.second item)) fileList
@@ -524,40 +510,40 @@ encodeFiles fileList =
 
 {-| Example:
 
-> encodeTextFile defaultFileRecord "Test!" |> encode
+> encodeTextFile defaultMetadata "Test!" |> encode
 > <1024 bytes> : Bytes.Bytes
 
 -}
-encodeTextFile : FileRecord -> String -> Encode.Encoder
-encodeTextFile fileRecord_ contents =
+encodeTextFile : MetaData -> String -> Encode.Encoder
+encodeTextFile metaData_ contents =
     let
-        fileRecord =
-            { fileRecord_ | fileSize = String.length contents }
+        metaData =
+            { metaData_ | fileSize = String.length contents }
     in
     Encode.sequence
-        [ encodeFileRecord fileRecord
+        [ encodeMetaData metaData
         , Encode.string (padContents contents)
         ]
 
 
-encodeFile : FileRecord -> Data -> Encode.Encoder
-encodeFile fileRecord_ data =
+encodeFile : MetaData -> Data -> Encode.Encoder
+encodeFile metaData data =
     case data of
         StringData contents ->
-            encodeTextFile fileRecord_ contents
+            encodeTextFile metaData contents
 
         BinaryData bytes ->
-            encodeBinaryFile fileRecord_ bytes
+            encodeBinaryFile metaData bytes
 
 
-encodeBinaryFile : FileRecord -> Bytes -> Encode.Encoder
-encodeBinaryFile fileRecord_ bytes =
+encodeBinaryFile : MetaData -> Bytes -> Encode.Encoder
+encodeBinaryFile metaData_ bytes =
     let
-        fileRecord =
-            { fileRecord_ | fileSize = Bytes.width bytes }
+        metaData =
+            { metaData_ | fileSize = Bytes.width bytes }
     in
     Encode.sequence
-        [ encodeFileRecord fileRecord
+        [ encodeMetaData metaData
         , encodePaddedBytes bytes
         ]
 
@@ -574,51 +560,51 @@ encodePaddedBytes bytes =
         ]
 
 
-encodeFileRecord : FileRecord -> Encode.Encoder
-encodeFileRecord fileRecord =
+encodeMetaData : MetaData -> Encode.Encoder
+encodeMetaData metadata =
     let
         fr =
-            preliminaryEncodeFileRecord fileRecord |> encode
+            preliminaryEncodeMetaData metadata |> encode
     in
     Encode.sequence
-        [ Encode.string (normalizeString 100 fileRecord.filename)
-        , encodeMode fileRecord.mode
-        , Encode.sequence [ octalEncoder 6 fileRecord.ownerID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 6 fileRecord.groupID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 11 fileRecord.fileSize, encodedSpace ]
-        , Encode.sequence [ octalEncoder 11 fileRecord.lastModificationTime, encodedSpace ]
+        [ Encode.string (normalizeString 100 metadata.filename)
+        , encodeMode metadata.mode
+        , Encode.sequence [ octalEncoder 6 metadata.ownerID, encodedSpace, encodedNull ]
+        , Encode.sequence [ octalEncoder 6 metadata.groupID, encodedSpace, encodedNull ]
+        , Encode.sequence [ octalEncoder 11 metadata.fileSize, encodedSpace ]
+        , Encode.sequence [ octalEncoder 11 metadata.lastModificationTime, encodedSpace ]
         , Encode.sequence [ CheckSum.sumEncoder fr, encodedNull, encodedSpace ]
-        , linkEncoder fileRecord.linkIndicator
-        , Encode.string (normalizeString 100 fileRecord.linkedFileName)
+        , linkEncoder metadata.linkIndicator
+        , Encode.string (normalizeString 100 metadata.linkedFileName)
         , Encode.sequence [ Encode.string "ustar", encodedNull ]
         , Encode.string "00"
-        , Encode.string (normalizeString 32 fileRecord.userName)
-        , Encode.string (normalizeString 32 fileRecord.groupName)
+        , Encode.string (normalizeString 32 metadata.userName)
+        , Encode.string (normalizeString 32 metadata.groupName)
         , Encode.sequence [ octalEncoder 6 0, encodedSpace ]
         , Encode.sequence [ encodedNull, octalEncoder 6 0, encodedSpace ]
-        , Encode.string (normalizeString 168 fileRecord.fileNamePrefix)
+        , Encode.string (normalizeString 168 metadata.fileNamePrefix)
         ]
 
 
-preliminaryEncodeFileRecord : FileRecord -> Encode.Encoder
-preliminaryEncodeFileRecord fileRecord =
+preliminaryEncodeMetaData : MetaData -> Encode.Encoder
+preliminaryEncodeMetaData metadata =
     Encode.sequence
-        [ Encode.string (normalizeString 100 fileRecord.filename)
-        , encodeMode fileRecord.mode
-        , Encode.sequence [ octalEncoder 6 fileRecord.ownerID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 6 fileRecord.groupID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 11 fileRecord.fileSize, encodedSpace ]
-        , Encode.sequence [ octalEncoder 11 fileRecord.lastModificationTime, encodedSpace ]
+        [ Encode.string (normalizeString 100 metadata.filename)
+        , encodeMode metadata.mode
+        , Encode.sequence [ octalEncoder 6 metadata.ownerID, encodedSpace, encodedNull ]
+        , Encode.sequence [ octalEncoder 6 metadata.groupID, encodedSpace, encodedNull ]
+        , Encode.sequence [ octalEncoder 11 metadata.fileSize, encodedSpace ]
+        , Encode.sequence [ octalEncoder 11 metadata.lastModificationTime, encodedSpace ]
         , Encode.string "        "
         , encodedSpace -- slinkEncoder fileRecord.linkIndicator
-        , Encode.string (normalizeString 100 fileRecord.linkedFileName)
+        , Encode.string (normalizeString 100 metadata.linkedFileName)
         , Encode.sequence [ Encode.string "ustar", encodedNull ]
         , Encode.string "00"
-        , Encode.string (normalizeString 32 fileRecord.userName)
-        , Encode.string (normalizeString 32 fileRecord.groupName)
+        , Encode.string (normalizeString 32 metadata.userName)
+        , Encode.string (normalizeString 32 metadata.groupName)
         , Encode.sequence [ octalEncoder 6 0, encodedSpace ]
         , Encode.sequence [ encodedNull, octalEncoder 6 0, encodedSpace ]
-        , Encode.string (normalizeString 168 fileRecord.fileNamePrefix)
+        , Encode.string (normalizeString 168 metadata.fileNamePrefix)
         ]
 
 
@@ -697,20 +683,20 @@ encodeInt12 n =
         ]
 
 
-{-| defaultFileRecord is a dummy FileRecord that you modify
+{-| defaultMetadata is a dummy MetaData value that you modify
 to suit your needs. It contains a lot of boilerplates
 
 Example
 
-fileRecord = { defaultFileRecord | filename = "Test.txt" }
+metaData= { defaultMetadata | filename = "Test.txt" }
 
-See the definition of FileRecord to see what other fields you
+See the definition of MetaData to see what other fields you
 may want to modify, or see `/examples/Main.elm`.
 
 -}
-defaultFileRecord : FileRecord
-defaultFileRecord =
-    FileRecord
+defaultMetadata : MetaData
+defaultMetadata =
+    MetaData
         "test.txt"
         blankMode
         501
@@ -781,25 +767,3 @@ with 0's on the right.
 normalizeString : Int -> String -> String
 normalizeString n str =
     str |> String.left n |> String.padRight n (Char.fromCode 0)
-
-
-
-{- NOTES -}
-{- @gabber
-
-   / untested
-   myzip : List Bytes -> Bytes.Encode.Encoder
-   myzip files =
-       let
-           file_encoder : Bytes-> Bytes.Encode.Encoder
-           file_encoder file =
-               Bytes.Encode.sequence
-                   [ Bytes.Encode.unsignedInt32 Bytes.Encode.BE <| Bytes.width file
-                   , Bytes.Encode.bytes file
-                   ]
-       in
-       Encode.sequence <|
-           [ Bytes.Encode.unsignedInt8 <| List.length files ]
-           ++ List.map file_encoder files
-
--}
