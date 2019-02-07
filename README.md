@@ -23,19 +23,10 @@ The test app in `examples/Main.elm` illustrates how these are used -- some test 
 Use
 
 ```
-    extractArcive tarArhive
+    extractArcive tarArchive
 ```
 
-to extract a tar archiv.  The result is a list of elements of type `(FileData, Data)`,
-where
-
-```
-  type alias FileData =
-      { fileName : String
-      , fileExtension : Maybe String
-      , length : Int
-      }
-```
+to extract a tar archive.  The result is a list of elements of type `(FileRecord, Data)`.
 
 ## Tarring text files
 
