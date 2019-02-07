@@ -1,15 +1,4 @@
-module Tar
-    exposing
-        ( Data(..)
-        , FileRecord
-        , defaultFileRecord
-        , encodeFiles
-        , encodeTextFile
-        , encodeTextFiles
-        , createArchive
-        , extractArchive
-        , testArchive
-        )
+module Tar exposing (Data(..), FileRecord, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultFileRecord)
 
 {-| Use
 
@@ -43,10 +32,11 @@ For more details, see the README. See also the demo app `./examples/Main.elm`
 import Bytes exposing (..)
 import Bytes.Decode as Decode exposing (Decoder, Step(..), decode)
 import Bytes.Encode as Encode exposing (encode)
-import Time exposing (Posix)
 import Char
 import CheckSum
 import Octal exposing (octalEncoder)
+import Time exposing (Posix)
+
 
 
 {- Types For creating a tar archive -}
@@ -108,21 +98,28 @@ type Link
     | SymbolicLink
 
 
-type alias FileData =
-    { fileName : String
-    , fileExtension : Maybe String
-    , length : Int
-    }
-
-
 
 {- For extracting a tar archive -}
 
 
 type HeaderInfo
-    = FileHeader FileData
+    = FileHeader FileHeaderInfo
     | NullBlock
     | Error
+
+
+type FileHeaderInfo
+    = FileHeaderInfo FileRecord (Maybe String)
+
+
+fileSize : FileHeaderInfo -> Int
+fileSize (FileHeaderInfo fileRecord _) =
+    fileRecord.fileSize
+
+
+fileExtension : FileHeaderInfo -> Maybe String
+fileExtension (FileHeaderInfo fileRecord ext) =
+    ext
 
 
 type State
@@ -162,7 +159,7 @@ testArchive =
 to test this function
 
 -}
-extractArchive : Bytes -> List ( FileData, Data )
+extractArchive : Bytes -> List ( FileRecord, Data )
 extractArchive bytes =
     bytes
         |> decode decodeFiles
@@ -200,14 +197,15 @@ fileStep ( state, outputList ) =
                 ( headerInfo_, data ) :: xs ->
                     stateFromHeaderInfo headerInfo_
     in
-        if state == EndOfData then
-            Decode.succeed (Done outputList)
-        else
-            let
-                newState =
-                    info outputList
-            in
-                Decode.map (\output -> Loop ( newState, output :: outputList )) decodeFile
+    if state == EndOfData then
+        Decode.succeed (Done outputList)
+
+    else
+        let
+            newState =
+                info outputList
+        in
+        Decode.map (\output -> Loop ( newState, output :: outputList )) decodeFile
 
 
 decodeFile : Decoder ( HeaderInfo, Data )
@@ -225,56 +223,61 @@ decodeFirstBlock =
 decodeOtherBlocks : HeaderInfo -> Decoder ( HeaderInfo, Data )
 decodeOtherBlocks headerInfo =
     case headerInfo of
-        FileHeader fileData ->
-            case fileData.fileExtension of
+        FileHeader (FileHeaderInfo fileRecord maybeExtension) ->
+            case maybeExtension of
                 Just ext ->
                     if List.member ext textFileExtensions then
-                        decodeStringBody fileData
+                        decodeStringBody (FileHeaderInfo fileRecord maybeExtension)
+
                     else
-                        decodeBinaryBody fileData
+                        decodeBinaryBody (FileHeaderInfo fileRecord maybeExtension)
 
                 Nothing ->
-                    decodeBinaryBody fileData
+                    decodeBinaryBody (FileHeaderInfo fileRecord maybeExtension)
 
         NullBlock ->
-            Decode.succeed ( headerInfo, StringData "NullBlock" )
+            Decode.succeed ( NullBlock, StringData "NullBlock" )
 
         Error ->
-            Decode.succeed ( headerInfo, StringData "Error" )
+            Decode.succeed ( Error, StringData "Error" )
 
 
-decodeFileHeader : Decoder FileData
-decodeFileHeader =
-    Decode.bytes 512
-        |> Decode.map (\bytes -> getFileData bytes)
+decodeStringBody : FileHeaderInfo -> Decoder ( HeaderInfo, Data )
+decodeStringBody fileHeaderInfo =
+    let
+        (FileHeaderInfo fileRecord maybeExtension) =
+            fileHeaderInfo
+    in
+    Decode.string (round512 fileRecord.fileSize)
+        |> Decode.map (\str -> ( FileHeader fileHeaderInfo, StringData (String.left fileRecord.fileSize str) ))
 
 
-decodeStringBody : FileData -> Decoder ( HeaderInfo, Data )
-decodeStringBody fileData =
-    Decode.string (round512 fileData.length)
-        |> Decode.map (\str -> ( FileHeader fileData, StringData (String.left fileData.length str) ))
-
-
-decodeBinaryBody : FileData -> Decoder ( HeaderInfo, Data )
-decodeBinaryBody fileData =
-    Decode.bytes (round512 fileData.length)
-        |> Decode.map (\bytes -> ( FileHeader fileData, BinaryData bytes ))
+decodeBinaryBody : FileHeaderInfo -> Decoder ( HeaderInfo, Data )
+decodeBinaryBody fileHeaderInfo =
+    let
+        (FileHeaderInfo fileRecord maybeExtension) =
+            fileHeaderInfo
+    in
+    Decode.bytes (round512 fileRecord.fileSize)
+        |> Decode.map (\bytes -> ( FileHeader fileHeaderInfo, BinaryData bytes ))
 
 
 {-|
 
-> tf |> getFileData
+> tf |> getFileHeaderInfo
 > { fileName = "test.txt", length = 512 }
+
 -}
 getHeaderInfo : Bytes -> HeaderInfo
 getHeaderInfo bytes =
     case isHeader_ bytes of
         True ->
-            FileHeader (getFileData bytes)
+            FileHeader (getFileHeaderInfo bytes)
 
         False ->
-            if (decode (Decode.string 512) bytes == Just nullString512) then
+            if decode (Decode.string 512) bytes == Just nullString512 then
                 NullBlock
+
             else
                 Error
 
@@ -296,16 +299,16 @@ getFileExtension str =
                 |> String.split "."
                 |> List.reverse
     in
-        case List.length fileParts > 1 of
-            True ->
-                List.head fileParts
+    case List.length fileParts > 1 of
+        True ->
+            List.head fileParts
 
-            False ->
-                Nothing
+        False ->
+            Nothing
 
 
-getFileData : Bytes -> FileData
-getFileData bytes =
+getFileHeaderInfo : Bytes -> FileHeaderInfo
+getFileHeaderInfo bytes =
     let
         blockIsHeader =
             isHeader_ bytes
@@ -314,13 +317,19 @@ getFileData bytes =
             getFileName bytes
                 |> Maybe.withDefault "unknownFileName"
 
-        fileExtension =
+        fileExtension_ =
             getFileExtension fileName
 
         length =
             getFileLength bytes
+
+        fileRecord =
+            { defaultFileRecord
+                | filename = fileName
+                , fileSize = length
+            }
     in
-        { fileName = fileName, fileExtension = fileExtension, length = length }
+    FileHeaderInfo fileRecord fileExtension_
 
 
 
@@ -335,10 +344,11 @@ round512 n =
         residue =
             modBy 512 n
     in
-        if residue == 0 then
-            n
-        else
-            n + (512 - residue)
+    if residue == 0 then
+        n
+
+    else
+        n + (512 - residue)
 
 
 {-| isHeader bytes == True if and only if
@@ -349,6 +359,7 @@ isHeader : Bytes -> Bool
 isHeader bytes =
     if Bytes.width bytes == 512 then
         isHeader_ bytes
+
     else
         False
 
@@ -396,33 +407,32 @@ stripLeadingElement lead list =
         [ x ] ->
             if lead == x then
                 []
+
             else
                 [ x ]
 
         x :: xs ->
             if lead == x then
                 stripLeadingElement lead xs
+
             else
                 x :: xs
 
 
-getFileDataFromHeaderInfo : HeaderInfo -> FileData
+getFileDataFromHeaderInfo : HeaderInfo -> FileRecord
 getFileDataFromHeaderInfo headerInfo =
     case headerInfo of
-        FileHeader fileData ->
-            fileData
+        FileHeader (FileHeaderInfo fileRecord _) ->
+            fileRecord
 
         _ ->
-            { fileName = "Unknown file name"
-            , fileExtension = Nothing
-            , length = 0
-            }
+            defaultFileRecord
 
 
 stateFromHeaderInfo : HeaderInfo -> State
 stateFromHeaderInfo headerInfo =
     case headerInfo of
-        FileHeader fileData ->
+        FileHeader _ ->
             Processing
 
         NullBlock ->
@@ -437,7 +447,7 @@ headerInfoOfOutput ( headerInfo, output ) =
     headerInfo
 
 
-simplifyOutput : Output -> ( FileData, Data )
+simplifyOutput : Output -> ( FileRecord, Data )
 simplifyOutput ( headerInfo, data ) =
     ( getFileDataFromHeaderInfo headerInfo, data )
 
@@ -469,7 +479,7 @@ encodeFiles [(defaultFileRecord, "This is a test"), (defaultFileRecord, "Lah di 
 encodeTextFiles : List ( FileRecord, String ) -> Encode.Encoder
 encodeTextFiles fileList =
     Encode.sequence
-        ((List.map (\item -> encodeTextFile (Tuple.first item) (Tuple.second item)) fileList)
+        (List.map (\item -> encodeTextFile (Tuple.first item) (Tuple.second item)) fileList
             ++ [ Encode.string (normalizeString 1024 "") ]
         )
 
@@ -502,11 +512,12 @@ encodeTextFiles fileList =
           |> Bytes.Encode.encode
 
       Note: `Hex` is found in `jxxcarlson/hex`
+
 -}
 encodeFiles : List ( FileRecord, Data ) -> Encode.Encoder
 encodeFiles fileList =
     Encode.sequence
-        ((List.map (\item -> encodeFile (Tuple.first item) (Tuple.second item)) fileList)
+        (List.map (\item -> encodeFile (Tuple.first item) (Tuple.second item)) fileList
             ++ [ Encode.string (normalizeString 1024 "") ]
         )
 
@@ -523,10 +534,10 @@ encodeTextFile fileRecord_ contents =
         fileRecord =
             { fileRecord_ | fileSize = String.length contents }
     in
-        Encode.sequence
-            [ encodeFileRecord fileRecord
-            , Encode.string (padContents contents)
-            ]
+    Encode.sequence
+        [ encodeFileRecord fileRecord
+        , Encode.string (padContents contents)
+        ]
 
 
 encodeFile : FileRecord -> Data -> Encode.Encoder
@@ -545,10 +556,10 @@ encodeBinaryFile fileRecord_ bytes =
         fileRecord =
             { fileRecord_ | fileSize = Bytes.width bytes }
     in
-        Encode.sequence
-            [ encodeFileRecord fileRecord
-            , encodePaddedBytes bytes
-            ]
+    Encode.sequence
+        [ encodeFileRecord fileRecord
+        , encodePaddedBytes bytes
+        ]
 
 
 encodePaddedBytes : Bytes -> Encode.Encoder
@@ -557,10 +568,10 @@ encodePaddedBytes bytes =
         paddingWidth =
             modBy 512 (Bytes.width bytes) |> (\x -> 512 - x)
     in
-        Encode.sequence
-            [ Encode.bytes bytes
-            , Encode.sequence <| List.repeat paddingWidth (Encode.unsignedInt8 0)
-            ]
+    Encode.sequence
+        [ Encode.bytes bytes
+        , Encode.sequence <| List.repeat paddingWidth (Encode.unsignedInt8 0)
+        ]
 
 
 encodeFileRecord : FileRecord -> Encode.Encoder
@@ -569,24 +580,24 @@ encodeFileRecord fileRecord =
         fr =
             preliminaryEncodeFileRecord fileRecord |> encode
     in
-        Encode.sequence
-            [ Encode.string (normalizeString 100 fileRecord.filename)
-            , encodeMode fileRecord.mode
-            , Encode.sequence [ octalEncoder 6 fileRecord.ownerID, encodedSpace, encodedNull ]
-            , Encode.sequence [ octalEncoder 6 fileRecord.groupID, encodedSpace, encodedNull ]
-            , Encode.sequence [ octalEncoder 11 fileRecord.fileSize, encodedSpace ]
-            , Encode.sequence [ octalEncoder 11 fileRecord.lastModificationTime, encodedSpace ]
-            , Encode.sequence [ CheckSum.sumEncoder fr, encodedNull, encodedSpace ]
-            , linkEncoder fileRecord.linkIndicator
-            , Encode.string (normalizeString 100 fileRecord.linkedFileName)
-            , Encode.sequence [ Encode.string "ustar", encodedNull ]
-            , Encode.string "00"
-            , Encode.string (normalizeString 32 fileRecord.userName)
-            , Encode.string (normalizeString 32 fileRecord.groupName)
-            , Encode.sequence [ octalEncoder 6 0, encodedSpace ]
-            , Encode.sequence [ encodedNull, octalEncoder 6 0, encodedSpace ]
-            , Encode.string (normalizeString 168 fileRecord.fileNamePrefix)
-            ]
+    Encode.sequence
+        [ Encode.string (normalizeString 100 fileRecord.filename)
+        , encodeMode fileRecord.mode
+        , Encode.sequence [ octalEncoder 6 fileRecord.ownerID, encodedSpace, encodedNull ]
+        , Encode.sequence [ octalEncoder 6 fileRecord.groupID, encodedSpace, encodedNull ]
+        , Encode.sequence [ octalEncoder 11 fileRecord.fileSize, encodedSpace ]
+        , Encode.sequence [ octalEncoder 11 fileRecord.lastModificationTime, encodedSpace ]
+        , Encode.sequence [ CheckSum.sumEncoder fr, encodedNull, encodedSpace ]
+        , linkEncoder fileRecord.linkIndicator
+        , Encode.string (normalizeString 100 fileRecord.linkedFileName)
+        , Encode.sequence [ Encode.string "ustar", encodedNull ]
+        , Encode.string "00"
+        , Encode.string (normalizeString 32 fileRecord.userName)
+        , Encode.string (normalizeString 32 fileRecord.groupName)
+        , Encode.sequence [ octalEncoder 6 0, encodedSpace ]
+        , Encode.sequence [ encodedNull, octalEncoder 6 0, encodedSpace ]
+        , Encode.string (normalizeString 168 fileRecord.fileNamePrefix)
+        ]
 
 
 preliminaryEncodeFileRecord : FileRecord -> Encode.Encoder
@@ -731,7 +742,7 @@ padContents str =
         padding =
             String.repeat paddingLength nullString
     in
-        str ++ padding
+    str ++ padding
 
 
 encodedSpace =
