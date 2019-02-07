@@ -1,12 +1,13 @@
 module Main exposing (main)
 
 import Browser
-import Html exposing (..)
 import Bytes exposing (Bytes)
 import Bytes.Encode exposing (encode)
-import Tar exposing (Data(..))
 import File.Download as Download
 import Hex
+import Html exposing (..)
+import Tar exposing (Data(..))
+
 
 
 -- MAIN
@@ -60,21 +61,19 @@ initialData =
             { fileRecord_ | filename = "c.binary" }
 
         content3 =
-            Hex.toBytes "616263646566" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
+            Hex.toBytes "0123456789" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
     in
-        -- Tar.encodeTextFiles [ ( fileRecord1, content1 ), ( fileRecord2, content2 ) ] |> encode
-        Tar.encodeFiles
-            [ ( fileRecord1, StringData content1 )
-
-            -- , ( fileRecord2, StringData content2 )
-            -- , ( fileRecord3, BinaryData content3 )
-            ]
-            |> encode
+    Tar.encodeFiles
+        [ ( fileRecord1, StringData content1 )
+        , ( fileRecord2, StringData content2 )
+        , ( fileRecord3, BinaryData content3 )
+        ]
+        |> encode
 
 
 saveData : Bytes -> Cmd msg
 saveData bytes =
-    Download.bytes ("test.tar") "application/x-tar" bytes
+    Download.bytes "test.tar" "application/x-tar" bytes
 
 
 
