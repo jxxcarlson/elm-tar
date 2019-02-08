@@ -64,21 +64,21 @@ Next, we create an archive consisting of one text file and one binary file:
 ```
 import Tar exposing(..)
 
-metadata = { defaultMetadata | filename = "test123.txt" }
+metadata1 = { defaultMetadata | filename = "test123.txt" }
 
 text = "This is a test (ho ho ho).\nIt is a frabjous day!"
 
 metadata2 = { defaultMetadata | filename = "foo.binary" }
 
-> archive = createArchive [ ( metadata, StringData text ), ( metadata2, BinaryData bytes ) ]
+> archive = createArchive [
+      ( metadata1, StringData text )
+    , ( metadata2, BinaryData bytes )
+  ]
 <3072 bytes> : Bytes.Bytes
 
 File.Download.bytes "test.tar" "application/x-tar" archive
 <internals> : Cmd msg -- You can't do this one in the repl.
 ```
-
-## Metadata notes
-
 
 
 ## Improvements
@@ -95,7 +95,11 @@ I've fixed it, so the type signatures are now as above. Much better!
 
 Well, we really do need some tests, as @ruf (Runar Furenes) pointed out to me. [Thanks Runar!]
 
-Runar did some fuzz testing which revealed that creating an archive and then extracting the data does not always give back the data you started with .. there are sometimes trailing nulls.  I hope to get to the bottom of this very soon.  Meanwhile, as an aid to finding this bug and for just testing in general, I've added a `Test` module.  It doesn't have actual tests, but rather some test data, a test tar archive, etc., and some functions for working with these.  See the comments therein.
+Runar did some fuzz testing which revealed that creating an archive and then extracting the data does not always give back the data you started with ... there are sometimes trailing nulls.  I see them using `extractArchive` following
+`createArchive`, which should be an implementation of the identity function. So far I have not observed this error
+when creating an archive, downloading it, and then extracting it using `tar -xvf`.
+
+I hope to get to the bottom of this very soon.  Meanwhile, as an aid to finding this bug and for just testing in general, I've added a `Test` module.  It doesn't have actual tests, but rather some test data, a test tar archive, etc., and some functions for working with these.  See the comments therein.
 
 ## Demo app
 
