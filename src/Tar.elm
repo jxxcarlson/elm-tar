@@ -1,7 +1,4 @@
-module Tar exposing
-    ( Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
-    , BlockInfo(..), ExtendedMetaData(..), FilePermission(..), Link(..), Mode, Output, OutputList, State(..), SystemInfo(..), addGroup, addOther, addUser, blankMode, blockInfoOfOuput, canExecute, canRead, canWrite, decodeBinaryBody, decodeFile, decodeFiles, decodeFirstBlock, decodeOtherBlocks, decodeStringBody, encodeBinaryFile, encodeFile, encodeFilePermission, encodeFilePermissions, encodeInt12, encodeInt8, encodeMetaData, encodeMode, encodePaddedBytes, encodeSystemInfo, encodeSystemInfos, encodedNull, encodedSpace, encodedZero, fileExtension, filePermissionOfBinaryDigits, fileSize, fileStep, getBlockInfo, getFileDataFromHeaderInfo, getFileExtension, getFileHeaderInfo, getFileLength, getFileName, getMode, getNumber, getString, isHeader, isHeader_, linkEncoder, normalizeString, nullMode, nullString512, padContents, preliminaryEncodeMetaData, round512, simplifyOutput, stateFromBlockInfo, stripLeadingElement, stripLeadingString, textFileExtensions
-    )
+module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
 
 {-| Use
 
