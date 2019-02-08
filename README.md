@@ -4,7 +4,7 @@ With this package you can both create and extract tar archives using
 ```
    createArchive List (Metadata, Data) -> Bytes
 
-    extractArchive : Bytes -> List ( MetaData, Data )
+   extractArchive : Bytes -> List ( MetaData, Data )
 ```
 
 To give a simple example, we make define some binary data
