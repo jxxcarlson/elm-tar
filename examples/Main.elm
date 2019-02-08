@@ -42,31 +42,24 @@ init _ =
 initialData : Bytes
 initialData =
     let
-        fileRecord_ =
+        metadata =
             Tar.defaultMetadata
 
-        fileRecord1 =
-            { fileRecord_ | filename = "a.txt" }
+        metadata1 =
+            { metadata | filename = "a.txt" }
 
         content1 =
-            "One two three\n"
+            "abc"
 
-        fileRecord2 =
-            { fileRecord_ | filename = "b.txt" }
+        metadata2 =
+            { metadata | filename = "b.binary" }
 
         content2 =
-            "Four five six\n"
-
-        fileRecord3 =
-            { fileRecord_ | filename = "c.binary" }
-
-        content3 =
-            Hex.toBytes "0123456789" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
+            Hex.toBytes "AABBFF" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
     in
     Tar.encodeFiles
-        [ ( fileRecord1, StringData content1 )
-        , ( fileRecord2, StringData content2 )
-        , ( fileRecord3, BinaryData content3 )
+        [ ( metadata1, StringData content1 )
+        , ( metadata2, BinaryData content2 )
         ]
         |> encode
 

@@ -7,6 +7,42 @@ With this package you can both create and extract tar archives using
    extractArchive : Bytes -> List ( MetaData, Data )
 ```
 
+## Types  
+
+The `Data` type discriminates between string and binary  data:
+```
+type Data
+    = StringData String
+    | BinaryData Bytes
+```
+
+The `MetaData` type is complex and reflects the official tar specification:
+
+```
+type alias MetaData =
+    { filename : String
+    , mode : Mode
+    , ownerID : Int
+    , groupID : Int
+    , fileSize : Int
+    , lastModificationTime : Int
+    , linkIndicator : Link
+    , linkedFileName : String
+    , userName : String
+    , groupName : String
+    , fileNamePrefix : String
+    , typeFlag : Ascii
+    }
+```
+The `mode` carries Unix file permissions, e.g., 644.  The fileNamePrefix
+can be thought of as the name of the folder/directory in which the files
+to be processed live.
+
+Because filling out this record is something a pain, a `defaultMetadata : MetaData`
+value is provided.  It can be modified as needed.  
+
+## Example
+
 To give a simple example, we make define some binary data
 and check that it is what we think it is:
 
@@ -40,6 +76,10 @@ metadata2 = { defaultMetadata | filename = "foo.binary" }
 File.Download.bytes "test.tar" "application/x-tar" archive
 <internals> : Cmd msg -- You can't do this one in the repl.
 ```
+
+## Metadata notes
+
+
 
 ## Improvements
 

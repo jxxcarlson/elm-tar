@@ -1,6 +1,11 @@
-module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
+module Tar exposing
+    ( Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
+    , encodeMetaData
+    )
 
 {-| Use
+
+encodeMetaData
 
        createArchive : List ( MetaData, Data ) -> Bytes
 
@@ -16,7 +21,8 @@ For more details, see the README. See also the demo app `./examples/Main.elm`
 -}
 
 {-
-   XXXX, exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
+   XXXX module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
+
 -}
 
 import Bytes exposing (..)
@@ -63,7 +69,12 @@ type alias MetaData =
     , userName : String
     , groupName : String
     , fileNamePrefix : String
+    , typeFlag : Ascii
     }
+
+
+type alias Ascii =
+    Int
 
 
 {-| defaultMetadata is a dummy MetaData value that you modify
@@ -89,7 +100,8 @@ defaultMetadata =
     , linkedFileName = "bar.txt"
     , userName = "anonymous"
     , groupName = "staff"
-    , fileNamePrefix = "hohoho"
+    , fileNamePrefix = "abc"
+    , typeFlag = 0
     }
 
 
@@ -339,44 +351,27 @@ getFileExtension str =
 getFileHeaderInfo : Bytes -> ExtendedMetaData
 getFileHeaderInfo bytes =
     let
-        blockIsHeader =
-            isHeader_ bytes
-
         fileName =
             getFileName bytes
                 |> Maybe.withDefault "unknownFileName"
 
-        mode =
-            getMode bytes
-
-        ownerId =
-            getNumber 108 8 bytes
-
-        groupID =
-            getNumber 116 8 bytes
-
-        fileExtension_ =
-            getFileExtension fileName
-
-        length =
-            getFileLength bytes
-
         metadata =
             { defaultMetadata
                 | filename = fileName
-                , mode = mode
+                , mode = getMode bytes
                 , ownerID = getNumber 108 8 bytes
                 , groupID = getNumber 116 8 bytes
-                , fileSize = length
+                , fileSize = getFileLength bytes
                 , lastModificationTime = 0
                 , linkIndicator = NormalFile
                 , linkedFileName = "foo.txt"
                 , userName = getString 265 32 bytes
-                , groupName = getString 29 32 bytes
-                , fileNamePrefix = "None"
+                , groupName = getString 297 32 bytes
+                , fileNamePrefix = getString 345 155 bytes
+                , typeFlag = getNumber 156 1 bytes
             }
     in
-    ExtendedMetaData metadata fileExtension_
+    ExtendedMetaData metadata (getFileExtension fileName)
 
 
 
@@ -727,9 +722,9 @@ encodeMetaData metadata =
         , Encode.string "00"
         , Encode.string (normalizeString 32 metadata.userName)
         , Encode.string (normalizeString 32 metadata.groupName)
-        , Encode.sequence [ octalEncoder 6 0, encodedSpace ]
-        , Encode.sequence [ encodedNull, octalEncoder 6 0, encodedSpace ]
-        , Encode.string (normalizeString 168 metadata.fileNamePrefix)
+        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
+        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
+        , Encode.string (normalizeString 167 metadata.fileNamePrefix)
         ]
 
 
@@ -749,9 +744,9 @@ preliminaryEncodeMetaData metadata =
         , Encode.string "00"
         , Encode.string (normalizeString 32 metadata.userName)
         , Encode.string (normalizeString 32 metadata.groupName)
-        , Encode.sequence [ octalEncoder 6 0, encodedSpace ]
-        , Encode.sequence [ encodedNull, octalEncoder 6 0, encodedSpace ]
-        , Encode.string (normalizeString 168 metadata.fileNamePrefix)
+        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
+        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
+        , Encode.string (normalizeString 167 metadata.fileNamePrefix)
         ]
 
 
