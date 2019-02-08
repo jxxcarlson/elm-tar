@@ -1,4 +1,7 @@
-module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
+module Tar exposing
+    ( Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
+    , BlockInfo(..), ExtendedMetaData(..), FilePermission(..), Link(..), Mode, Output, OutputList, State(..), SystemInfo(..), addGroup, addOther, addUser, blankMode, blockInfoOfOuput, decodeBinaryBody, decodeFile, decodeFiles, decodeFirstBlock, decodeOtherBlocks, decodeStringBody, encodeBinaryFile, encodeFile, encodeFilePermission, encodeFilePermissions, encodeInt12, encodeInt8, encodeMetaData, encodeMode, encodePaddedBytes, encodeSystemInfo, encodeSystemInfos, encodedNull, encodedSpace, encodedZero, fileExtension, filePermissionOfBinaryDigits, fileSize, fileStep, getBlockInfo, getFileDataFromHeaderInfo, getFileExtension, getFileHeaderInfo, getFileLength, getFileName, getMode, getMode1, isHeader, isHeader_, linkEncoder, normalizeString, nullString512, padContents, preliminaryEncodeMetaData, round512, simplifyOutput, stateFromBlockInfo, stripLeadingElement, stripLeadingString, textFileExtensions
+    )
 
 {-| Use
 
@@ -15,11 +18,30 @@ For more details, see the README. See also the demo app `./examples/Main.elm`
 
 -}
 
+{-
+   ( Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
+   , BlockInfo(..), ExtendedMetaData(..), FilePermission(..), Link(..), Mode, Output, OutputList, State(..), SystemInfo(..), blankMode, blockInfoOfOuput, decodeBinaryBody, decodeFile, decodeFiles, decodeFirstBlock, decodeOtherBlocks, decodeStringBody, encodeBinaryFile, encodeFile, encodeFilePermission, encodeFilePermissions, encodeInt12, encodeInt8, encodeMetaData, encodeMode, encodePaddedBytes, encodeSystemInfo, encodeSystemInfos, encodedNull, encodedSpace, encodedZero, fileExtension, fileSize, fileStep, getBlockInfo, getFileDataFromHeaderInfo, getFileExtension, getFileHeaderInfo, getFileLength, getFileName, getMode, isHeader, isHeader_, linkEncoder, normalizeString, nullString512, padContents, preliminaryEncodeMetaData, round512, simplifyOutput, stateFromBlockInfo, stripLeadingElement, stripLeadingString, textFileExtensions
+   )
+
+-}
+{-
+       ( Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
+       , BlockInfo(..), ExtendedMetaData(..), FilePermission(..), Link(..), Mode, Output, OutputList, State(..), SystemInfo(..), blankMode, blockInfoOfOuput, decodeBinaryBody, decodeFile, decodeFiles, decodeFirstBlock, decodeOtherBlocks, decodeStringBody, encodeBinaryFile, encodeFile, encodeFilePermission, encodeFilePermissions, encodeInt12, encodeInt8, encodeMetaData, encodeMode, encodePaddedBytes, encodeSystemInfo, encodeSystemInfos, encodedNull, encodedSpace, encodedZero, fileExtension, fileSize, fileStep, getBlockInfo, getFileDataFromHeaderInfo, getFileExtension, getFileHeaderInfo, getFileLength, getFileName, isHeader, isHeader_, linkEncoder, normalizeString, nullString512, padContents, preliminaryEncodeMetaData, round512, simplifyOutput, stateFromBlockInfo, stripLeadingElement, stripLeadingString, textFileExtensions
+       )
+
+   -
+-}
+{-
+   exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
+-}
+
 import Bytes exposing (..)
 import Bytes.Decode as Decode exposing (Decoder, Step(..), decode)
 import Bytes.Encode as Encode exposing (encode)
 import Char
 import CheckSum
+import List.Extra
+import Maybe.Extra
 import Octal exposing (octalEncoder)
 import Time exposing (Posix)
 
@@ -303,19 +325,23 @@ getFileHeaderInfo bytes =
             getFileName bytes
                 |> Maybe.withDefault "unknownFileName"
 
+        mode =
+            getMode bytes
+
         fileExtension_ =
             getFileExtension fileName
 
         length =
             getFileLength bytes
 
-        fileRecord =
+        metadata =
             { defaultMetadata
                 | filename = fileName
                 , fileSize = length
+                , mode = mode
             }
     in
-    ExtendedMetaData fileRecord fileExtension_
+    ExtendedMetaData metadata fileExtension_
 
 
 
@@ -374,6 +400,119 @@ getFileLength bytes =
         |> Maybe.map String.trim
         |> Maybe.andThen String.toInt
         |> Maybe.withDefault 0
+
+
+
+-- getMode1 : Bytes -> Mode
+
+
+getMode1 bytes =
+    bytes
+        |> decode (Decode.string 256)
+        |> Maybe.map (String.slice 102 106)
+        |> Maybe.map (String.split "")
+        |> Maybe.withDefault [ "0", "6", "4", "4" ]
+        |> List.map String.toInt
+        |> Maybe.Extra.values
+        |> List.map (Octal.binaryDigits 3)
+        |> List.map filePermissionOfBinaryDigits
+
+
+getMode : Bytes -> Mode
+getMode bytes =
+    let
+        permissions =
+            bytes
+                |> decode (Decode.string 256)
+                |> Maybe.map (String.slice 102 106)
+                |> Maybe.map (String.split "")
+                |> Maybe.withDefault [ "0", "6", "4", "4" ]
+                |> List.map String.toInt
+                |> Maybe.Extra.values
+                |> List.map (Octal.binaryDigits 3)
+                |> List.map filePermissionOfBinaryDigits
+    in
+    addUser permissions nullMode
+        |> addGroup permissions
+        |> addOther permissions
+
+
+filePermissionOfBinaryDigits : List Int -> List FilePermission
+filePermissionOfBinaryDigits binaryDigits =
+    canRead binaryDigits []
+        |> canWrite binaryDigits
+        |> canExecute binaryDigits
+
+
+addUser : List (List FilePermission) -> Mode -> Mode
+addUser lp mode =
+    case List.Extra.getAt 1 lp of
+        Just p ->
+            { mode | user = p }
+
+        _ ->
+            mode
+
+
+addGroup : List (List FilePermission) -> Mode -> Mode
+addGroup lp mode =
+    case List.Extra.getAt 2 lp of
+        Just p ->
+            { mode | group = p }
+
+        _ ->
+            mode
+
+
+addOther : List (List FilePermission) -> Mode -> Mode
+addOther lp mode =
+    case List.Extra.getAt 3 lp of
+        Just p ->
+            { mode | other = p }
+
+        _ ->
+            mode
+
+
+{-| Assume fpl is like [1,1,0]}
+-}
+canRead : List Int -> List FilePermission -> List FilePermission
+canRead binaryDigits fpl =
+    case List.Extra.getAt 0 binaryDigits of
+        Just 1 ->
+            Read :: fpl
+
+        _ ->
+            fpl
+
+
+canWrite : List Int -> List FilePermission -> List FilePermission
+canWrite binaryDigits fpl =
+    case List.Extra.getAt 1 binaryDigits of
+        Just 1 ->
+            Write :: fpl
+
+        _ ->
+            fpl
+
+
+canExecute : List Int -> List FilePermission -> List FilePermission
+canExecute binaryDigits fpl =
+    case List.Extra.getAt 2 binaryDigits of
+        Just 1 ->
+            Execute :: fpl
+
+        _ ->
+            fpl
+
+
+
+-- |> Maybe.Extra.values
+-- |> List.map String.toInt
+-- |> Maybe.map (stripLeadingString "0")
+-- |> Maybe.map String.trim
+-- |> Maybe.andThen String.toInt
+-- |> Maybe.withDefault 0
 
 
 stripLeadingString : String -> String -> String
@@ -744,7 +883,19 @@ encodedNull =
 
 
 blankMode =
-    Mode [ Read, Write ] [ Read ] [ Read ] [ SGID ]
+    { user = [ Read, Write, Execute ]
+    , group = [ Read, Write ]
+    , other = [ Read ]
+    , system = [ SGID ]
+    }
+
+
+nullMode =
+    { user = []
+    , group = []
+    , other = []
+    , system = []
+    }
 
 
 encodeFilePermission : FilePermission -> Int
@@ -758,6 +909,10 @@ encodeFilePermission fp =
 
         Execute ->
             1
+
+
+
+-- decodeFilePermission : Int -> FilePermission
 
 
 {-| return string of length n, truncated

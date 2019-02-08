@@ -1,8 +1,10 @@
-module Octal exposing (octalEncoder)
+module Octal exposing (binaryDigits, octalEncoder, octalList)
 
-import Bytes.Encode as Encode exposing (encode)
+import Bytes.Encode as Encode exposing (Encoder, encode)
+import Maybe.Extra
 
 
+octalEncoder : Int -> Int -> Encoder
 octalEncoder width n =
     octalList n
         |> List.reverse
@@ -12,16 +14,29 @@ octalEncoder width n =
         |> Encode.sequence
 
 
+
+-- octalAsciiFromOctalString str =
+--     octalList n
+--         |> List.reverse
+--         |> padList width 0
+--         |> List.map (\x -> x + 48)
+-- encodeFileMode : String -> Bytes
+-- |> List.map Encode.unsignedInt8
+-- |> Encode.sequence
+
+
 {-|
 
 > octalList 2001
 > [1,2,7,3]
 > Last significant digit first
+
 -}
 octalList : Int -> List Int
 octalList n =
     if n < 8 then
         [ n ]
+
     else
         let
             lo =
@@ -30,12 +45,34 @@ octalList n =
             hi =
                 n // 8
         in
-            lo :: (octalList hi)
+        lo :: octalList hi
+
+
+binaryList : Int -> List Int
+binaryList n =
+    if n < 2 then
+        [ n ]
+
+    else
+        let
+            lo =
+                modBy 2 n
+
+            hi =
+                n // 2
+        in
+        lo :: binaryList hi
+
+
+binaryDigits : Int -> Int -> List Int
+binaryDigits k n =
+    binaryList n |> List.reverse |> padList k 0
 
 
 padList : Int -> a -> List a -> List a
 padList n padding list =
     if List.length list >= n then
         list
+
     else
-        padding :: (padList (n - 1) padding list)
+        padding :: padList (n - 1) padding list
