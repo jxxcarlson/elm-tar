@@ -1,14 +1,10 @@
 # Elm-Tar
 
-With this package you can both create and extract tar archives.  To create
-a tar archive, use
+With this package you can both create and extract tar archives using
 ```
    createArchive List (Metadata, Data) -> Bytes
-```
-To extract a tar archive. use
 
-```
-    extractArchive tarArchive
+    extractArchive : Bytes -> List ( MetaData, Data )
 ```
 
 To give a simple example, we make define some binary data
@@ -50,14 +46,7 @@ File.Download.bytes "test.tar" "application/x-tar" archive
 As Runar Furenes (@ruf) pointed out to me, there was an asymmetry in the
 way metadata was treated: not the same for `extractArchive` as for `createArchive`.
 This sort of thing is almost always a sign of bad design and poor esthetic judgement.
-I've fixed it, so the type signatures are now
-
-```
-    createArchive : List ( MetaData, Data ) -> Bytes
-
-    extractArchive : Bytes -> List ( MetaData, Data )
-```
-Much better!
+I've fixed it, so the type signatures are now as above. Much better!
 
 
 
