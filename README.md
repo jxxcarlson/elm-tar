@@ -28,7 +28,7 @@ and check that it is what we think it is:
 "0001A1FF" : String
 ```
 
-For `Hex`, see `jxxcarlson/hex`.  Next, we create an archive consisting of one text file and one binary file:
+Next, we create an archive consisting of one text file and one binary file:
 ```
 import Tar exposing(..)
 
@@ -45,6 +45,28 @@ File.Download.bytes "test.tar" "application/x-tar" archive
 <internals> : Cmd msg -- You can't do this one in the repl.
 ```
 
+## Improvements
+
+As Runar Furenes (@ruf) pointed out to me, there was an asymmetry in the
+way metadata was treated: not the same for `extractArchive` as for `createArchive`.
+This sort of thing is almost always a sign of bad design and poor esthetic judgement.
+I've fixed it, so the type signatures are now
+
+```
+    createArchive : List ( MetaData, Data ) -> Bytes
+
+    extractArchive : Bytes -> List ( MetaData, Data )
+```
+Much better!
+
+
+
+
+## Testing  
+
+Well, we really do need some tests, as @ruf (Runar Furenes) pointed out to me. [Thanks Runar!]
+
+Runar did some fuzz testing which revealed that creating an archive and then extracting the data does not always give back the data you started with .. there are sometimes trailing nulls.  I hope to get to the bottom of this very soon.  Meanwhile, as an aid to finding this bug and for just testing in general, I've added a `Test` module.  It doesn't have actual tests, but rather some test data, a test tar archive, etc., and some functions for working with these.  See the comments therein.
 
 ## Demo app
 

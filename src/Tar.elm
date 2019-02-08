@@ -1,6 +1,6 @@
 module Tar exposing
     ( Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
-    , BlockInfo(..), ExtendedMetaData(..), FilePermission(..), Link(..), Mode, Output, OutputList, State(..), SystemInfo(..), addGroup, addOther, addUser, blankMode, blockInfoOfOuput, decodeBinaryBody, decodeFile, decodeFiles, decodeFirstBlock, decodeOtherBlocks, decodeStringBody, encodeBinaryFile, encodeFile, encodeFilePermission, encodeFilePermissions, encodeInt12, encodeInt8, encodeMetaData, encodeMode, encodePaddedBytes, encodeSystemInfo, encodeSystemInfos, encodedNull, encodedSpace, encodedZero, fileExtension, filePermissionOfBinaryDigits, fileSize, fileStep, getBlockInfo, getFileDataFromHeaderInfo, getFileExtension, getFileHeaderInfo, getFileLength, getFileName, getMode, getMode1, isHeader, isHeader_, linkEncoder, normalizeString, nullString512, padContents, preliminaryEncodeMetaData, round512, simplifyOutput, stateFromBlockInfo, stripLeadingElement, stripLeadingString, textFileExtensions
+    , BlockInfo(..), ExtendedMetaData(..), FilePermission(..), Link(..), Mode, Output, OutputList, State(..), SystemInfo(..), addGroup, addOther, addUser, blankMode, blockInfoOfOuput, canExecute, canRead, canWrite, decodeBinaryBody, decodeFile, decodeFiles, decodeFirstBlock, decodeOtherBlocks, decodeStringBody, encodeBinaryFile, encodeFile, encodeFilePermission, encodeFilePermissions, encodeInt12, encodeInt8, encodeMetaData, encodeMode, encodePaddedBytes, encodeSystemInfo, encodeSystemInfos, encodedNull, encodedSpace, encodedZero, fileExtension, filePermissionOfBinaryDigits, fileSize, fileStep, getBlockInfo, getFileDataFromHeaderInfo, getFileExtension, getFileHeaderInfo, getFileLength, getFileName, getMode, getNumber, getString, isHeader, isHeader_, linkEncoder, normalizeString, nullMode, nullString512, padContents, preliminaryEncodeMetaData, round512, simplifyOutput, stateFromBlockInfo, stripLeadingElement, stripLeadingString, textFileExtensions
     )
 
 {-| Use
@@ -19,20 +19,7 @@ For more details, see the README. See also the demo app `./examples/Main.elm`
 -}
 
 {-
-   ( Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
-   , BlockInfo(..), ExtendedMetaData(..), FilePermission(..), Link(..), Mode, Output, OutputList, State(..), SystemInfo(..), blankMode, blockInfoOfOuput, decodeBinaryBody, decodeFile, decodeFiles, decodeFirstBlock, decodeOtherBlocks, decodeStringBody, encodeBinaryFile, encodeFile, encodeFilePermission, encodeFilePermissions, encodeInt12, encodeInt8, encodeMetaData, encodeMode, encodePaddedBytes, encodeSystemInfo, encodeSystemInfos, encodedNull, encodedSpace, encodedZero, fileExtension, fileSize, fileStep, getBlockInfo, getFileDataFromHeaderInfo, getFileExtension, getFileHeaderInfo, getFileLength, getFileName, getMode, isHeader, isHeader_, linkEncoder, normalizeString, nullString512, padContents, preliminaryEncodeMetaData, round512, simplifyOutput, stateFromBlockInfo, stripLeadingElement, stripLeadingString, textFileExtensions
-   )
-
--}
-{-
-       ( Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
-       , BlockInfo(..), ExtendedMetaData(..), FilePermission(..), Link(..), Mode, Output, OutputList, State(..), SystemInfo(..), blankMode, blockInfoOfOuput, decodeBinaryBody, decodeFile, decodeFiles, decodeFirstBlock, decodeOtherBlocks, decodeStringBody, encodeBinaryFile, encodeFile, encodeFilePermission, encodeFilePermissions, encodeInt12, encodeInt8, encodeMetaData, encodeMode, encodePaddedBytes, encodeSystemInfo, encodeSystemInfos, encodedNull, encodedSpace, encodedZero, fileExtension, fileSize, fileStep, getBlockInfo, getFileDataFromHeaderInfo, getFileExtension, getFileHeaderInfo, getFileLength, getFileName, isHeader, isHeader_, linkEncoder, normalizeString, nullString512, padContents, preliminaryEncodeMetaData, round512, simplifyOutput, stateFromBlockInfo, stripLeadingElement, stripLeadingString, textFileExtensions
-       )
-
-   -
--}
-{-
-   exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
+   XXXX, exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
 -}
 
 import Bytes exposing (..)
@@ -47,7 +34,9 @@ import Time exposing (Posix)
 
 
 
-{- Types For creating a tar archive -}
+--
+-- TYPES
+--
 
 
 {-| Use `StringData String` for text data,
@@ -77,6 +66,33 @@ type alias MetaData =
     , userName : String
     , groupName : String
     , fileNamePrefix : String
+    }
+
+
+{-| defaultMetadata is a dummy MetaData value that you modify
+to suit your needs. It contains a lot of boilerplates
+
+Example
+
+metaData= { defaultMetadata | filename = "Test.txt" }
+
+See the definition of MetaData to see what other fields you
+may want to modify, or see `/examples/Main.elm`.
+
+-}
+defaultMetadata : MetaData
+defaultMetadata =
+    { filename = "test.txt"
+    , mode = blankMode
+    , ownerID = 501
+    , groupID = 123
+    , fileSize = 20
+    , lastModificationTime = 1542665285
+    , linkIndicator = NormalFile
+    , linkedFileName = "bar.txt"
+    , userName = "anonymous"
+    , groupName = "staff"
+    , fileNamePrefix = "hohoho"
     }
 
 
@@ -144,6 +160,12 @@ type alias OutputList =
     List Output
 
 
+
+--
+-- TESTING
+--
+
+
 {-| A small tar archive for testing purposes
 -}
 testArchive : Bytes
@@ -156,7 +178,9 @@ testArchive =
 
 
 
-{- vvv EXTRACT TAR ACHIVE vvv -}
+--
+-- EXTRACT ARCHIVE
+--
 
 
 {-| Try
@@ -328,6 +352,12 @@ getFileHeaderInfo bytes =
         mode =
             getMode bytes
 
+        ownerId =
+            getNumber 108 8 bytes
+
+        groupID =
+            getNumber 116 8 bytes
+
         fileExtension_ =
             getFileExtension fileName
 
@@ -337,8 +367,16 @@ getFileHeaderInfo bytes =
         metadata =
             { defaultMetadata
                 | filename = fileName
-                , fileSize = length
                 , mode = mode
+                , ownerID = getNumber 108 8 bytes
+                , groupID = getNumber 116 8 bytes
+                , fileSize = length
+                , lastModificationTime = 0
+                , linkIndicator = NormalFile
+                , linkedFileName = "foo.txt"
+                , userName = getString 265 32 bytes
+                , groupName = getString 29 32 bytes
+                , fileNamePrefix = "None"
             }
     in
     ExtendedMetaData metadata fileExtension_
@@ -402,20 +440,24 @@ getFileLength bytes =
         |> Maybe.withDefault 0
 
 
-
--- getMode1 : Bytes -> Mode
-
-
-getMode1 bytes =
+getNumber : Int -> Int -> Bytes -> Int
+getNumber begin length bytes =
     bytes
         |> decode (Decode.string 256)
-        |> Maybe.map (String.slice 102 106)
+        |> Maybe.map (String.slice begin (begin + length - 1))
         |> Maybe.map (String.split "")
-        |> Maybe.withDefault [ "0", "6", "4", "4" ]
+        |> Maybe.withDefault (List.repeat length "0")
         |> List.map String.toInt
         |> Maybe.Extra.values
-        |> List.map (Octal.binaryDigits 3)
-        |> List.map filePermissionOfBinaryDigits
+        |> Octal.integerValueofOctalList
+
+
+getString : Int -> Int -> Bytes -> String
+getString begin length bytes =
+    bytes
+        |> decode (Decode.string 256)
+        |> Maybe.map (String.slice begin (begin + length - 1))
+        |> Maybe.withDefault "Oops!"
 
 
 getMode : Bytes -> Mode
@@ -506,44 +548,6 @@ canExecute binaryDigits fpl =
             fpl
 
 
-
--- |> Maybe.Extra.values
--- |> List.map String.toInt
--- |> Maybe.map (stripLeadingString "0")
--- |> Maybe.map String.trim
--- |> Maybe.andThen String.toInt
--- |> Maybe.withDefault 0
-
-
-stripLeadingString : String -> String -> String
-stripLeadingString lead str =
-    str
-        |> String.split ""
-        |> stripLeadingElement lead
-        |> String.join ""
-
-
-stripLeadingElement : a -> List a -> List a
-stripLeadingElement lead list =
-    case list of
-        [] ->
-            []
-
-        [ x ] ->
-            if lead == x then
-                []
-
-            else
-                [ x ]
-
-        x :: xs ->
-            if lead == x then
-                stripLeadingElement lead xs
-
-            else
-                x :: xs
-
-
 getFileDataFromHeaderInfo : BlockInfo -> MetaData
 getFileDataFromHeaderInfo headerInfo =
     case headerInfo of
@@ -578,7 +582,9 @@ simplifyOutput ( blockInfo, data ) =
 
 
 
-{- vvv CREATE TAR ACHIVE vvv -}
+--
+-- CREATE ARCHIVE
+--
 
 
 {-| Example:
@@ -697,6 +703,11 @@ encodePaddedBytes bytes =
         [ Encode.bytes bytes
         , Encode.sequence <| List.repeat paddingWidth (Encode.unsignedInt8 0)
         ]
+
+
+
+--
+-- ENCODE METADATA
 
 
 encodeMetaData : MetaData -> Encode.Encoder
@@ -822,33 +833,6 @@ encodeInt12 n =
         ]
 
 
-{-| defaultMetadata is a dummy MetaData value that you modify
-to suit your needs. It contains a lot of boilerplates
-
-Example
-
-metaData= { defaultMetadata | filename = "Test.txt" }
-
-See the definition of MetaData to see what other fields you
-may want to modify, or see `/examples/Main.elm`.
-
--}
-defaultMetadata : MetaData
-defaultMetadata =
-    MetaData
-        "test.txt"
-        blankMode
-        501
-        20
-        123
-        1542665285
-        NormalFile
-        ""
-        "anonymous"
-        "staff"
-        ""
-
-
 
 {- HELPERS FOR ENCODEING FILES -}
 
@@ -912,7 +896,38 @@ encodeFilePermission fp =
 
 
 
--- decodeFilePermission : Int -> FilePermission
+--
+-- HELPERS
+--
+
+
+stripLeadingString : String -> String -> String
+stripLeadingString lead str =
+    str
+        |> String.split ""
+        |> stripLeadingElement lead
+        |> String.join ""
+
+
+stripLeadingElement : a -> List a -> List a
+stripLeadingElement lead list =
+    case list of
+        [] ->
+            []
+
+        [ x ] ->
+            if lead == x then
+                []
+
+            else
+                [ x ]
+
+        x :: xs ->
+            if lead == x then
+                stripLeadingElement lead xs
+
+            else
+                x :: xs
 
 
 {-| return string of length n, truncated

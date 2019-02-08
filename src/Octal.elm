@@ -1,4 +1,4 @@
-module Octal exposing (binaryDigits, octalEncoder, octalList)
+module Octal exposing (binaryDigits, integerValueofOctalList, octalEncoder, octalList)
 
 import Bytes.Encode as Encode exposing (Encoder, encode)
 import Maybe.Extra
@@ -46,6 +46,21 @@ octalList n =
                 n // 8
         in
         lo :: octalList hi
+
+
+integerValueofOctalList : List Int -> Int
+integerValueofOctalList octalDigits =
+    integerValueOfOctalListAux octalDigits 0
+
+
+integerValueOfOctalListAux : List Int -> Int -> Int
+integerValueOfOctalListAux octalDigits acc =
+    case octalDigits of
+        [] ->
+            acc
+
+        d :: remainder ->
+            integerValueOfOctalListAux (List.drop 1 octalDigits) (8 * acc + d)
 
 
 binaryList : Int -> List Int
