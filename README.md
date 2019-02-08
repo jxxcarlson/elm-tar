@@ -1,65 +1,50 @@
 # Elm-Tar
 
-With this package you can both create and extract tar archives.  Use
+With this package you can both create and extract tar archives.  To create
+a tar archive, use
 ```
-   createArchive []
-Use
+   createArchive List (Metadata, Data) -> Bytes
+```
+To extract a tar archive. use
 
 ```
     extractArchive tarArchive
 ```
 
-to extract a tar archive.  The result is a list of elements of type `(MetaData, Data)`.
-
-## Tarring text files
-
-The example below shows how to use the present package with`elm/bytes` and `elm/file` to tar a text file, then download the data as `test.tar`.
+To give a simple example, we make define some binary data
+and check that it is what we think it is:
 
 ```
-   import Tar exposing(defaultFileRecord)
-   fileRecord =
-       { defaultFileRecord | filename = "test123.txt" }
+> import Hex                  -- from jxxcarlson/hex
+> import Bytes.Encode as E    -- from elm/bytes
 
-   content =
-       "This is a test (ho ho ho).\nIt is a frabjous day!"
+> null = E.encode (E.unsignedInt8 0)
+<1 bytes> : Bytes.Bytes
 
-   bytes = encodeTextFiles [ ( fileRecord, content ) ] |> Bytes.Encode.encode
+> bytes = Hex.toBytes "0001A1FF" |> Maybe.withDefault null
+<4 bytes> : Bytes.Bytes
 
-   File.Download.bytes "test.tar" "application/x-tar" bytes
+> Hex.fromBytes bytes
+"0001A1FF" : String
 ```
 
-To archive more files, just put more pairs `(fileRecord, content)`in the list above.
-
-
-
-## Tarring arbitrary files
-
-The example below shows how to make an archive for a set of files some of which are binary, some of which are text.
-
+For `Hex`, see `jxxcarlson/hex`.  Next, we create an archive consisting of one text file and one binary file:
 ```
-  fileRecord_ =
-      defaultFileRecord
+import Tar exposing(..)
 
-  fileRecord1 =
-      { fileRecord_ | filename = "a.txt" }
+metadata = { defaultMetadata | filename = "test123.txt" }
 
-  content1 =
-      "One two three\n"
+text = "This is a test (ho ho ho).\nIt is a frabjous day!"
 
-  fileRecord2 =
-      { fileRecord_ | filename = "b.binary" }
+metadata2 = { defaultMetadata | filename = "foo.binary" }
 
-  content2 =
-      Hex.toBytes "0123456" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
+> archive = createArchive [ ( metadata, StringData text ), ( metadata2, BinaryData bytes ) ]
+<3072 bytes> : Bytes.Bytes
 
-  Tar.encodeFiles
-      [ ( fileRecord1, StringData content1 )
-      , ( fileRecord2, BinaryData content2 )
-      ]
-      |> encode
+File.Download.bytes "test.tar" "application/x-tar" archive
+<internals> : Cmd msg -- You can't do this one in the repl.
 ```
 
-For `Hex`, see `jxxcarlson/hex`.
 
 ## Demo app
 
