@@ -1,7 +1,4 @@
-module Tar exposing
-    ( Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
-    , encodeMetaData
-    )
+module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
 
 {-| Use
 
@@ -69,7 +66,8 @@ type alias MetaData =
     , userName : String
     , groupName : String
     , fileNamePrefix : String
-    , typeFlag : Ascii
+
+    -- , typeFlag : Ascii
     }
 
 
@@ -101,7 +99,8 @@ defaultMetadata =
     , userName = "anonymous"
     , groupName = "staff"
     , fileNamePrefix = "abc"
-    , typeFlag = 0
+
+    -- , typeFlag = 0
     }
 
 
@@ -368,7 +367,8 @@ getFileHeaderInfo bytes =
                 , userName = getString 265 32 bytes
                 , groupName = getString 297 32 bytes
                 , fileNamePrefix = getString 345 155 bytes
-                , typeFlag = getNumber 156 1 bytes
+
+                -- , typeFlag = getNumber 156 1 bytes
             }
     in
     ExtendedMetaData metadata (getFileExtension fileName)
