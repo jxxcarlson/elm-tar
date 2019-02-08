@@ -3,7 +3,7 @@
     "name": "jxxcarlson/elm-tar",
     "summary": "Elm tar utility",
     "license": "BSD-3-Clause",
-    "version": "3.0.4",
+    "version": "3.0.3",
     "exposed-modules": [
         "Tar"
     ],
