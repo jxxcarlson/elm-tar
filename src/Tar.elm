@@ -632,7 +632,7 @@ encodeTextFiles fileList =
 encodeFiles : List ( MetaData, Data ) -> Encode.Encoder
 encodeFiles fileList =
     Encode.sequence
-        (List.map (\item -> encodeFile (Tuple.first item) (Tuple.second item)) fileList
+        (List.map (\( m, d ) -> encodeFile m d) fileList
             ++ [ Encode.string (normalizeString 1024 "") ]
         )
 
