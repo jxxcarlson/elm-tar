@@ -1,4 +1,15 @@
-module Test exposing (archive, extractedData, getBinaryDataAsStringAt, getBinaryDataAt, getMetaDataAt, getStringDataAt)
+module Test
+    exposing
+        ( arx
+        , isStringPipelineOK
+        , isBinaryPipelineOK
+        , archive
+        , extractedData
+        , getBinaryDataAsStringAt
+        , getBinaryDataAt
+        , getMetaDataAt
+        , getStringDataAt
+        )
 
 import Bytes exposing (Bytes)
 import Bytes.Encode as E
@@ -21,20 +32,55 @@ import Tar exposing (Data(..), MetaData, createArchive, defaultMetadata, extract
 --
 
 
+arx =
+    createArchive
+        [ ( { defaultMetadata | filename = "test1.csv" }, StringData "" )
+        , ( { defaultMetadata | filename = "test2.csv" }, StringData "" )
+        ]
+
+
+{-| Crude test:
+
+> import Test
+> Test.isStringPipelineOK
+
+-}
+isStringPipelineOK =
+    getStringDataAt 0 extractedData == Just text
+
+
+{-| Crude test:
+
+> import Test
+> Test.isBinaryPipelineOK
+
+-}
+isBinaryPipelineOK =
+    (getBinaryDataAt 1 extractedData |> Maybe.map Hex.fromBytes) == Just hexData
+
+
+hexData =
+    "0001A1FF"
+
+
 null =
     E.encode (E.unsignedInt8 0)
 
 
 someBytes =
-    Hex.toBytes "0001A1FF" |> Maybe.withDefault null
+    Hex.toBytes hexData |> Maybe.withDefault null
 
 
 metadata =
-    { defaultMetadata | filename = "test123.txt" }
+    { defaultMetadata | filename = "test.txt" }
 
 
 text =
-    "This is a test (ho ho ho).\nIt is a frabjous day!"
+    "Thisisat"
+
+
+text1 =
+    "This is a test."
 
 
 metadata2 =
@@ -55,6 +101,11 @@ extractedData =
 --
 
 
+{-|
+
+> getBinaryDataAt 1 extractedData |> Maybe.map Hex.fromBytes
+> Just "0001A1FF"
+-}
 getBinaryData : ( MetaData, Data ) -> Maybe Bytes
 getBinaryData dataPair =
     case Tuple.second dataPair of
@@ -65,6 +116,11 @@ getBinaryData dataPair =
             Nothing
 
 
+{-|
+
+> getStringDataAt 0 extractedData
+> Just ("This is a test.")
+-}
 getStringData : ( MetaData, Data ) -> Maybe String
 getStringData dataPair =
     case Tuple.second dataPair of
@@ -83,7 +139,7 @@ getMetaData stuff =
 
 getDataPairAt : Int -> List ( MetaData, Data ) -> Maybe ( MetaData, Data )
 getDataPairAt k outputList =
-    Utility.listGetAt.getAt k outputList
+    Utility.listGetAt k outputList
 
 
 getMetaDataAt : Int -> List ( MetaData, Data ) -> Maybe MetaData

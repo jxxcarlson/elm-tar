@@ -338,7 +338,7 @@ nullString512 =
 
 
 textFileExtensions =
-    [ "text", "txt", "tex" ]
+    [ "text", "txt", "tex", "csv" ]
 
 
 getFileExtension : String -> Maybe String
