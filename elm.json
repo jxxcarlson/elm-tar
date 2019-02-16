@@ -15,8 +15,6 @@
         "elm/file": "1.0.1 <= v < 2.0.0",
         "elm/html": "1.0.0 <= v < 2.0.0",
         "elm/time": "1.0.0 <= v < 2.0.0",
-        "elm-community/list-extra": "8.1.0 <= v < 9.0.0",
-        "elm-community/maybe-extra": "5.0.0 <= v < 6.0.0",
         "jxxcarlson/hex": "2.1.2 <= v < 3.0.0"
     },
     "test-dependencies": {

@@ -3,7 +3,7 @@ module Test exposing (archive, extractedData, getBinaryDataAsStringAt, getBinary
 import Bytes exposing (Bytes)
 import Bytes.Encode as E
 import Hex
-import List.Extra
+import Utility
 import Tar exposing (Data(..), MetaData, createArchive, defaultMetadata, extractArchive)
 
 
@@ -83,7 +83,7 @@ getMetaData stuff =
 
 getDataPairAt : Int -> List ( MetaData, Data ) -> Maybe ( MetaData, Data )
 getDataPairAt k outputList =
-    List.Extra.getAt k outputList
+    Utility.listGetAt.getAt k outputList
 
 
 getMetaDataAt : Int -> List ( MetaData, Data ) -> Maybe MetaData

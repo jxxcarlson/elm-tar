@@ -26,9 +26,8 @@ import Bytes exposing (..)
 import Bytes.Decode as Decode exposing (Decoder, Step(..), decode)
 import Bytes.Encode as Encode exposing (encode)
 import Char
+import Utility
 import CheckSum
-import List.Extra
-import Maybe.Extra
 import Octal exposing (octalEncoder)
 import Time exposing (Posix)
 
@@ -449,7 +448,7 @@ getNumber begin length bytes =
         |> Maybe.map (String.split "")
         |> Maybe.withDefault (List.repeat length "0")
         |> List.map String.toInt
-        |> Maybe.Extra.values
+        |> Utility.maybeValues
         |> Octal.integerValueofOctalList
 
 
@@ -471,7 +470,7 @@ getMode bytes =
                 |> Maybe.map (String.split "")
                 |> Maybe.withDefault [ "0", "6", "4", "4" ]
                 |> List.map String.toInt
-                |> Maybe.Extra.values
+                |> Utility.maybeValues
                 |> List.map (Octal.binaryDigits 3)
                 |> List.map filePermissionOfBinaryDigits
     in
@@ -489,7 +488,7 @@ filePermissionOfBinaryDigits binaryDigits =
 
 addUser : List (List FilePermission) -> Mode -> Mode
 addUser lp mode =
-    case List.Extra.getAt 1 lp of
+    case Utility.listGetAt 1 lp of
         Just p ->
             { mode | user = p }
 
@@ -499,7 +498,7 @@ addUser lp mode =
 
 addGroup : List (List FilePermission) -> Mode -> Mode
 addGroup lp mode =
-    case List.Extra.getAt 2 lp of
+    case Utility.listGetAt 2 lp of
         Just p ->
             { mode | group = p }
 
@@ -509,7 +508,7 @@ addGroup lp mode =
 
 addOther : List (List FilePermission) -> Mode -> Mode
 addOther lp mode =
-    case List.Extra.getAt 3 lp of
+    case Utility.listGetAt 3 lp of
         Just p ->
             { mode | other = p }
 
@@ -521,7 +520,7 @@ addOther lp mode =
 -}
 canRead : List Int -> List FilePermission -> List FilePermission
 canRead binaryDigits fpl =
-    case List.Extra.getAt 0 binaryDigits of
+    case Utility.listGetAt 0 binaryDigits of
         Just 1 ->
             Read :: fpl
 
@@ -531,7 +530,7 @@ canRead binaryDigits fpl =
 
 canWrite : List Int -> List FilePermission -> List FilePermission
 canWrite binaryDigits fpl =
-    case List.Extra.getAt 1 binaryDigits of
+    case Utility.listGetAt 1 binaryDigits of
         Just 1 ->
             Write :: fpl
 
@@ -541,7 +540,7 @@ canWrite binaryDigits fpl =
 
 canExecute : List Int -> List FilePermission -> List FilePermission
 canExecute binaryDigits fpl =
-    case List.Extra.getAt 2 binaryDigits of
+    case Utility.listGetAt 2 binaryDigits of
         Just 1 ->
             Execute :: fpl
 

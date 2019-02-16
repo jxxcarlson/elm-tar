@@ -1,7 +1,6 @@
 module Octal exposing (binaryDigits, integerValueofOctalList, octalEncoder, octalList)
 
 import Bytes.Encode as Encode exposing (Encoder, encode)
-import Maybe.Extra
 
 
 octalEncoder : Int -> Int -> Encoder
@@ -30,13 +29,11 @@ octalEncoder width n =
 > octalList 2001
 > [1,2,7,3]
 > Last significant digit first
-
 -}
 octalList : Int -> List Int
 octalList n =
     if n < 8 then
         [ n ]
-
     else
         let
             lo =
@@ -45,7 +42,7 @@ octalList n =
             hi =
                 n // 8
         in
-        lo :: octalList hi
+            lo :: octalList hi
 
 
 integerValueofOctalList : List Int -> Int
@@ -67,7 +64,6 @@ binaryList : Int -> List Int
 binaryList n =
     if n < 2 then
         [ n ]
-
     else
         let
             lo =
@@ -76,7 +72,7 @@ binaryList n =
             hi =
                 n // 2
         in
-        lo :: binaryList hi
+            lo :: binaryList hi
 
 
 binaryDigits : Int -> Int -> List Int
@@ -88,6 +84,5 @@ padList : Int -> a -> List a -> List a
 padList n padding list =
     if List.length list >= n then
         list
-
     else
         padding :: padList (n - 1) padding list
