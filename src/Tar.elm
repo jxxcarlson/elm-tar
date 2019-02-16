@@ -148,6 +148,19 @@ fileSize (ExtendedMetaData metaData _) =
     metaData.fileSize
 
 
+fileSizeOfBlockInfo : BlockInfo -> Int
+fileSizeOfBlockInfo blockInfo =
+    case blockInfo of
+        FileInfo extendedMetaData ->
+            fileSize extendedMetaData
+
+        NullBlock ->
+            0
+
+        Error ->
+            0
+
+
 fileExtension : ExtendedMetaData -> Maybe String
 fileExtension (ExtendedMetaData metaData ext) =
     ext
@@ -294,9 +307,12 @@ decodeBinaryBody fileHeaderInfo =
     let
         (ExtendedMetaData fileRecord maybeExtension) =
             fileHeaderInfo
+
+        n =
+            fileRecord.fileSize
     in
         Decode.bytes (round512 fileRecord.fileSize)
-            |> Decode.map (\bytes -> ( FileInfo fileHeaderInfo, BinaryData bytes ))
+            |> Decode.map (\bytes -> ( FileInfo fileHeaderInfo, BinaryData (take n bytes) ))
 
 
 {-|
@@ -564,6 +580,31 @@ blockInfoOfOuput ( blockInfo, output ) =
 simplifyOutput : Output -> ( MetaData, Data )
 simplifyOutput ( blockInfo, data ) =
     ( getFileDataFromHeaderInfo blockInfo, data )
+
+
+simplifyOutput2 : Output -> ( MetaData, Data )
+simplifyOutput2 ( blockInfo, data ) =
+    let
+        n =
+            fileSizeOfBlockInfo blockInfo
+    in
+        ( getFileDataFromHeaderInfo blockInfo, take2 n data )
+
+
+take2 : Int -> Data -> Data
+take2 k data =
+    case data of
+        StringData str ->
+            StringData str
+
+        BinaryData bytes_ ->
+            BinaryData (take k bytes_)
+
+
+take : Int -> Bytes -> Bytes
+take k bytes =
+    Decode.decode (Decode.bytes k) bytes
+        |> Maybe.withDefault (Encode.encode (Encode.unsignedInt8 0))
 
 
 
