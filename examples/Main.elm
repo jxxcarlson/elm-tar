@@ -2,12 +2,11 @@ module Main exposing (main)
 
 import Browser
 import Bytes exposing (Bytes)
-import Bytes.Encode exposing (encode)
+import Bytes.Encode as E exposing (encode)
 import File.Download as Download
 import Hex
 import Html exposing (..)
 import Tar exposing (Data(..))
-
 
 
 -- MAIN
@@ -49,19 +48,22 @@ initialData =
             { metadata | filename = "a.txt" }
 
         content1 =
-            "abc"
+            "jello"
 
         metadata2 =
             { metadata | filename = "b.binary" }
 
+        content2a =
+            Hex.toBytes "AABBFF" |> Maybe.withDefault (encode (E.unsignedInt8 0))
+
         content2 =
-            Hex.toBytes "AABBFF" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
+            encode (E.string "jello")
     in
-    Tar.encodeFiles
-        [ ( metadata1, StringData content1 )
-        , ( metadata2, BinaryData content2 )
-        ]
-        |> encode
+        Tar.encodeFiles
+            [ ( metadata1, StringData content1 )
+            , ( metadata2, BinaryData content2 )
+            ]
+            |> encode
 
 
 saveData : Bytes -> Cmd msg

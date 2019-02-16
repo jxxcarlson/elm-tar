@@ -7,7 +7,6 @@ import List.Extra
 import Tar exposing (Data(..), MetaData, createArchive, defaultMetadata, extractArchive)
 
 
-
 {- Examples
 
    > getMetaDataAt 0 extractedData
