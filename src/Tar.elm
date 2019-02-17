@@ -728,10 +728,15 @@ encodeBinaryFile metaData_ bytes =
         metaData =
             { metaData_ | fileSize = Bytes.width bytes }
     in
-        Encode.sequence
-            [ encodeMetaData metaData
-            , encodePaddedBytes bytes
-            ]
+        case metaData.fileSize == 0 of
+            True ->
+                Encode.sequence [ encodeMetaData metaData ]
+
+            False ->
+                Encode.sequence
+                    [ encodeMetaData metaData
+                    , encodePaddedBytes bytes
+                    ]
 
 
 encodePaddedBytes : Bytes -> Encode.Encoder
