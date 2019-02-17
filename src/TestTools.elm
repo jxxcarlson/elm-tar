@@ -1,13 +1,15 @@
 module TestTools
     exposing
-        ( archive
-        , extractedData
-        , getBinaryDataAsStringAt
+        ( getBinaryDataAsStringAt
         , getBinaryDataAt
         , getMetaDataAt
         , getStringDataAt
         , makeTextFileArchive
+        , makeBinaryFileArchive
         , extractStringDataFromArchive
+        , extractBinaryDataFromArchive
+        , null
+        , stringValue
         )
 
 import Bytes exposing (Bytes)
@@ -31,6 +33,22 @@ import Tar exposing (Data(..), MetaData, createArchive, defaultMetadata, extract
 --
 
 
+{-| Return a string representation of the data
+-}
+stringValue : Data -> String
+stringValue datum =
+    case datum of
+        StringData str ->
+            str
+
+        BinaryData bytes ->
+            Hex.fromBytes bytes
+
+
+null =
+    E.encode (E.unsignedInt8 0)
+
+
 makeTextFileArchive : List String -> Bytes
 makeTextFileArchive contentList =
     createArchive <|
@@ -38,9 +56,21 @@ makeTextFileArchive contentList =
             contentList
 
 
+makeBinaryFileArchive : List String -> Bytes
+makeBinaryFileArchive contentList =
+    createArchive <|
+        List.indexedMap (\i c -> ( { defaultMetadata | filename = binaryFileNameOfInt i }, BinaryData c ))
+            (List.map Hex.toBytes contentList |> List.map (Maybe.withDefault null))
+
+
 fileNameOfInt : Int -> String
 fileNameOfInt k =
     "f" ++ String.fromInt k ++ ".txt"
+
+
+binaryFileNameOfInt : Int -> String
+binaryFileNameOfInt k =
+    "f" ++ String.fromInt k ++ ".bin"
 
 
 extractStringDataFromArchive : Bytes -> List (Maybe String)
@@ -56,46 +86,17 @@ extractStringDataFromArchive bytes =
         List.map (\i -> getStringDataAt i data) (List.range 0 (n - 1))
 
 
-hexData =
-    "0001A1FF"
+extractBinaryDataFromArchive : Bytes -> List (Maybe Bytes)
+extractBinaryDataFromArchive bytes =
+    let
+        data : List ( MetaData, Data )
+        data =
+            extractArchive bytes
 
-
-null =
-    E.encode (E.unsignedInt8 0)
-
-
-someBytes =
-    Hex.toBytes hexData |> Maybe.withDefault null
-
-
-metadata =
-    { defaultMetadata | filename = "test.txt" }
-
-
-text =
-    "Thisisat"
-
-
-text1 =
-    "This is a test."
-
-
-metadata2 =
-    { defaultMetadata | filename = "foo.binary" }
-
-
-archive =
-    createArchive [ ( metadata, StringData text ), ( metadata2, BinaryData someBytes ) ]
-
-
-extractedData =
-    extractArchive archive
-
-
-
---
--- TEST FUNCTIONS
---
+        n =
+            List.length data
+    in
+        List.map (\i -> getBinaryDataAt i data) (List.range 0 (n - 1))
 
 
 {-|

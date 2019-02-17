@@ -41,6 +41,7 @@ import Utility
 import CheckSum
 import Octal exposing (octalEncoder)
 import Time exposing (Posix)
+import Hex
 
 
 --

@@ -79,7 +79,7 @@ File.Download.bytes "test.tar" "application/x-tar" archive
 
 ## Metadata notes
 
-There is an unresolved problem of how to properly encode the metadata
+(1) There is an unresolved problem of how to properly encode the metadata
 of text files so that `extractArchive` knows to decode the content
 as a string.  At the moment, archived files whose content is to be
 decoded as a string are recognized by their file extension.  The
@@ -91,6 +91,10 @@ admissible text files have extension  in the list
 
 This is an unsatisfactory solution, but at the moment, I don't
 know how to get around it.
+
+(2) The `fileNamePrefix` in the metadata is the name of the folder
+into which the files willl be decoded.
+
 
 ## Improvements
 
@@ -104,9 +108,20 @@ I've fixed it, so the type signatures are now as above. Much better!
 
 ## Testing
 
-Well, we really do need some tests, as @ruf (Runar Furenes) pointed out to me. [Thanks Runar!]
+Well, we really do need some tests, as @ruf also noted. [Thanks Runar!]  We do have some rudimentary ones now:
 
-Runar did some fuzz testing which revealed that creating an archive and then extracting the data does not always give back the data you started with .. there are sometimes trailing nulls.  I hope to get to the bottom of this very soon.  Meanwhile, as an aid to finding this bug and for just testing in general, I've added a `Test` module.  It doesn't have actual tests, but rather some test data, a test tar archive, etc., and some functions for working with these.  See the comments therein.
+```
+   > import Tests exposing(..)
+
+   > checkListAsString stringTestData
+     [(0,True),(1,True),(2,True)]
+
+   > checkListAsBinary binaryTestData
+   > [(0,True),(1,True)] : List ( Int, Bool )
+```
+See the module `Test` to see what these results
+mean.  Basically, `(k, True)` means that the k-th test passes.
+
 
 ## Demo app
 
