@@ -701,9 +701,15 @@ encodeTextFile metaData_ contents =
             { metaData_ | fileSize = String.length contents }
     in
         Encode.sequence
-            [ encodeMetaData metaData
-            , Encode.string (padContents contents)
-            ]
+            (case contents == "" of
+                True ->
+                    [ encodeMetaData metaData ]
+
+                False ->
+                    [ encodeMetaData metaData
+                    , Encode.string (padContents contents)
+                    ]
+            )
 
 
 encodeFile : MetaData -> Data -> Encode.Encoder
@@ -743,6 +749,7 @@ encodePaddedBytes bytes =
 
 --
 -- ENCODE METADATA
+--
 
 
 encodeMetaData : MetaData -> Encode.Encoder

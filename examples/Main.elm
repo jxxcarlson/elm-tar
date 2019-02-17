@@ -63,7 +63,7 @@ initialData =
             --     [ ( metadata1, StringData content1 )
             --     , ( metadata2, BinaryData content2 )
             --     ]
-            [ ( { metadata | filename = "test1.csv" }, StringData "x" )
+            [ ( { metadata | filename = "test1.csv" }, StringData "" )
             , ( { metadata | filename = "test2.csv" }, StringData "" )
             ]
             |> encode
