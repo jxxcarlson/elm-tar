@@ -309,7 +309,11 @@ decodeStringBody fileHeaderInfo =
             fileHeaderInfo
     in
         Decode.string (round512 fileRecord.fileSize)
-            |> Decode.map (\str -> ( FileInfo fileHeaderInfo, StringData (String.left fileRecord.fileSize str) ))
+            |> Decode.map (\str -> ( FileInfo fileHeaderInfo, StringData (smashNulls str) ))
+
+
+
+-- StringData (String.left fileRecord.fileSize str) )
 
 
 decodeBinaryBody : ExtendedMetaData -> Decoder ( BlockInfo, Data )
@@ -982,3 +986,8 @@ with 0's on the right.
 normalizeString : Int -> String -> String
 normalizeString n str =
     str |> String.left n |> String.padRight n (Char.fromCode 0)
+
+
+smashNulls : String -> String
+smashNulls str =
+    String.replace (String.fromChar (Char.fromCode 0)) "" str

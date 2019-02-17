@@ -1,14 +1,13 @@
-module Test
+module TestTools
     exposing
-        ( arx
-        , isStringPipelineOK
-        , isBinaryPipelineOK
-        , archive
+        ( archive
         , extractedData
         , getBinaryDataAsStringAt
         , getBinaryDataAt
         , getMetaDataAt
         , getStringDataAt
+        , makeTextFileArchive
+        , extractStringDataFromArchive
         )
 
 import Bytes exposing (Bytes)
@@ -32,31 +31,29 @@ import Tar exposing (Data(..), MetaData, createArchive, defaultMetadata, extract
 --
 
 
-arx =
-    createArchive
-        [ ( { defaultMetadata | filename = "test1.csv" }, StringData "" )
-        , ( { defaultMetadata | filename = "test2.csv" }, StringData "" )
-        ]
+makeTextFileArchive : List String -> Bytes
+makeTextFileArchive contentList =
+    createArchive <|
+        List.indexedMap (\i c -> ( { defaultMetadata | filename = fileNameOfInt i }, StringData c ))
+            contentList
 
 
-{-| Crude test:
-
-> import Test
-> Test.isStringPipelineOK
-
--}
-isStringPipelineOK =
-    getStringDataAt 0 extractedData == Just text
+fileNameOfInt : Int -> String
+fileNameOfInt k =
+    "f" ++ String.fromInt k ++ ".txt"
 
 
-{-| Crude test:
+extractStringDataFromArchive : Bytes -> List (Maybe String)
+extractStringDataFromArchive bytes =
+    let
+        data : List ( MetaData, Data )
+        data =
+            extractArchive bytes
 
-> import Test
-> Test.isBinaryPipelineOK
-
--}
-isBinaryPipelineOK =
-    (getBinaryDataAt 1 extractedData |> Maybe.map Hex.fromBytes) == Just hexData
+        n =
+            List.length data
+    in
+        List.map (\i -> getStringDataAt i data) (List.range 0 (n - 1))
 
 
 hexData =
