@@ -60,8 +60,11 @@ initialData =
             encode (E.string "jello")
     in
         Tar.encodeFiles
-            [ ( metadata1, StringData content1 )
-            , ( metadata2, BinaryData content2 )
+            --     [ ( metadata1, StringData content1 )
+            --     , ( metadata2, BinaryData content2 )
+            --     ]
+            [ ( { metadata | filename = "test1.csv" }, StringData "x" )
+            , ( { metadata | filename = "test2.csv" }, StringData "" )
             ]
             |> encode
 

@@ -1,4 +1,15 @@
-module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
+module Tar
+    exposing
+        ( Data(..)
+        , MetaData
+        , createArchive
+        , extractArchive
+        , testArchive
+        , encodeFiles
+        , encodeTextFile
+        , encodeTextFiles
+        , defaultMetadata
+        )
 
 {-| Use
 
