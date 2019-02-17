@@ -7,7 +7,7 @@ With this package you can both create and extract tar archives using
    extractArchive : Bytes -> List ( MetaData, Data )
 ```
 
-## Types  
+## Types
 
 The `Data` type discriminates between string and binary  data:
 ```
@@ -39,7 +39,7 @@ can be thought of as the name of the folder/directory in which the files
 to be processed live.
 
 Because filling out this record is something a pain, a `defaultMetadata : MetaData`
-value is provided.  It can be modified as needed.  
+value is provided.  It can be modified as needed.
 
 ## Example
 
@@ -79,7 +79,18 @@ File.Download.bytes "test.tar" "application/x-tar" archive
 
 ## Metadata notes
 
+There is an unresolved problem of how to properly encode the metadata
+of text files so that `extractArchive` knows to decode the content
+as a string.  At the moment, archived files whose content is to be
+decoded as a string are recognized by their file extension.  The
+admissible text files have extension  in the list
 
+```
+[ "text", "txt", "tex", "csv" ]
+```
+
+This is an unsatisfactory solution, but at the moment, I don't
+know how to get around it.
 
 ## Improvements
 
@@ -91,7 +102,7 @@ I've fixed it, so the type signatures are now as above. Much better!
 
 
 
-## Testing  
+## Testing
 
 Well, we really do need some tests, as @ruf (Runar Furenes) pointed out to me. [Thanks Runar!]
 
@@ -99,7 +110,7 @@ Runar did some fuzz testing which revealed that creating an archive and then ext
 
 ## Demo app
 
-For a demo, run `elm make Main.elm` in `/examples`, then click on the resulting `index.html` file.  
+For a demo, run `elm make Main.elm` in `/examples`, then click on the resulting `index.html` file.
 
 ## References
 
