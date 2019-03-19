@@ -120,7 +120,7 @@ Well, we really do need some tests, as @ruf also noted. [Thanks Runar!]  We do h
    > [(0,True),(1,True)] : List ( Int, Bool )
 ```
 See the module `Test` to see what these results
-mean.  Basically, `(k, True)` means that the k-th test passes.
+mean.  Basically, `(k, True)` means that the k-th test passes.  More detalis in `Tests.md`.
 
 
 ## Demo app
