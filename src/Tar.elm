@@ -695,21 +695,8 @@ encodeFiles fileList =
 
 -}
 encodeTextFile : MetaData -> String -> Encode.Encoder
-encodeTextFile metaData_ contents =
-    let
-        metaData =
-            { metaData_ | fileSize = String.length contents }
-    in
-    Encode.sequence
-        (case contents == "" of
-            True ->
-                [ encodeMetaData metaData ]
-
-            False ->
-                [ encodeMetaData metaData
-                , Encode.string (padContents contents)
-                ]
-        )
+encodeTextFile metaData contents =
+    encodeBinaryFile metaData (Encode.encode (Encode.string contents))
 
 
 encodeFile : MetaData -> Data -> Encode.Encoder
@@ -723,18 +710,18 @@ encodeFile metaData data =
 
 
 encodeBinaryFile : MetaData -> Bytes -> Encode.Encoder
-encodeBinaryFile metaData_ bytes =
+encodeBinaryFile metaData bytes =
     let
-        metaData =
-            { metaData_ | fileSize = Bytes.width bytes }
+        width =
+            Bytes.width bytes
     in
-    case metaData.fileSize == 0 of
-        True ->
-            Encode.sequence [ encodeMetaData metaData ]
+    case width of
+        0 ->
+            encodeMetaData { metaData | fileSize = width }
 
-        False ->
+        _ ->
             Encode.sequence
-                [ encodeMetaData metaData
+                [ encodeMetaData { metaData | fileSize = width }
                 , encodePaddedBytes bytes
                 ]
 
