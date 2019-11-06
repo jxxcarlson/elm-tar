@@ -696,10 +696,12 @@ endOfFileMarker =
 -}
 encodeFiles : List ( MetaData, Data ) -> Encode.Encoder
 encodeFiles fileList =
-    Encode.sequence
-        (List.map (\( m, d ) -> encodeFile m d) fileList
-            ++ [ endOfFileMarker ]
-        )
+    let
+        folder ( metadata, string ) accum =
+            encodeFile metadata string :: accum
+    in
+    List.foldr folder [ endOfFileMarker ] fileList
+        |> Encode.sequence
 
 
 {-| Example:
@@ -761,48 +763,52 @@ encodePaddedBytes bytes =
 encodeMetaData : MetaData -> Encode.Encoder
 encodeMetaData metadata =
     let
-        fr =
-            preliminaryEncodeMetaData metadata |> encode
+        metaDataTop : Bytes
+        metaDataTop =
+            [ Encode.string (normalizeString 100 metadata.filename)
+            , encodeMode metadata.mode
+            , Encode.sequence [ octalEncoder 6 metadata.ownerID, encodedSpace, encodedNull ]
+            , Encode.sequence [ octalEncoder 6 metadata.groupID, encodedSpace, encodedNull ]
+            , Encode.sequence [ octalEncoder 11 metadata.fileSize, encodedSpace ]
+            , Encode.sequence [ octalEncoder 11 metadata.lastModificationTime, encodedSpace ]
+            ]
+                |> Encode.sequence
+                |> Encode.encode
+
+        metaDataBottom : Bytes
+        metaDataBottom =
+            [ Encode.string (normalizeString 100 metadata.linkedFileName)
+            , Encode.sequence [ Encode.string "ustar", encodedNull ]
+            , Encode.string "00"
+            , Encode.string (normalizeString 32 metadata.userName)
+            , Encode.string (normalizeString 32 metadata.groupName)
+            , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
+            , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
+            , Encode.string (normalizeString 167 metadata.fileNamePrefix)
+            ]
+                |> Encode.sequence
+                |> Encode.encode
+
+        preliminary : List Encode.Encoder
+        preliminary =
+            [ Encode.bytes metaDataTop
+            , Encode.string (String.repeat 8 " ")
+            , encodedSpace
+            , Encode.bytes metaDataBottom
+            ]
+
+        checksum : Encode.Encoder
+        checksum =
+            preliminary
+                |> Encode.sequence
+                |> Encode.encode
+                |> CheckSum.sumEncoder
     in
     Encode.sequence
-        [ Encode.string (normalizeString 100 metadata.filename)
-        , encodeMode metadata.mode
-        , Encode.sequence [ octalEncoder 6 metadata.ownerID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 6 metadata.groupID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 11 metadata.fileSize, encodedSpace ]
-        , Encode.sequence [ octalEncoder 11 metadata.lastModificationTime, encodedSpace ]
-        , Encode.sequence [ CheckSum.sumEncoder fr, encodedNull, encodedSpace ]
+        [ Encode.bytes metaDataTop
+        , Encode.sequence [ checksum, encodedNull, encodedSpace ]
         , linkEncoder metadata.linkIndicator
-        , Encode.string (normalizeString 100 metadata.linkedFileName)
-        , Encode.sequence [ Encode.string "ustar", encodedNull ]
-        , Encode.string "00"
-        , Encode.string (normalizeString 32 metadata.userName)
-        , Encode.string (normalizeString 32 metadata.groupName)
-        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
-        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
-        , Encode.string (normalizeString 167 metadata.fileNamePrefix)
-        ]
-
-
-preliminaryEncodeMetaData : MetaData -> Encode.Encoder
-preliminaryEncodeMetaData metadata =
-    Encode.sequence
-        [ Encode.string (normalizeString 100 metadata.filename)
-        , encodeMode metadata.mode
-        , Encode.sequence [ octalEncoder 6 metadata.ownerID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 6 metadata.groupID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 11 metadata.fileSize, encodedSpace ]
-        , Encode.sequence [ octalEncoder 11 metadata.lastModificationTime, encodedSpace ]
-        , Encode.string "        "
-        , encodedSpace -- slinkEncoder fileRecord.linkIndicator
-        , Encode.string (normalizeString 100 metadata.linkedFileName)
-        , Encode.sequence [ Encode.string "ustar", encodedNull ]
-        , Encode.string "00"
-        , Encode.string (normalizeString 32 metadata.userName)
-        , Encode.string (normalizeString 32 metadata.groupName)
-        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
-        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
-        , Encode.string (normalizeString 167 metadata.fileNamePrefix)
+        , Encode.bytes metaDataBottom
         ]
 
 
