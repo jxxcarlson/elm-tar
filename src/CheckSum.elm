@@ -1,56 +1,37 @@
-module CheckSum exposing (sumEncoder)
+module CheckSum exposing (checksum)
 
 import Bytes exposing (Bytes, Endianness(..))
-import Bytes.Decode as Decode exposing (Decoder, Step(..), loop, map, succeed)
-import Bytes.Encode as Encode exposing (encode)
+import Bytes.Decode as Decode exposing (Step(..), loop, map, succeed)
+import Bytes.Encode as Encode
 import Octal exposing (octalEncoder)
 
 
-{-|
+checksum : Bytes -> Encode.Encoder
+checksum bytes =
+    bytes
+        |> sumBytes
+        |> octalEncoder 6
 
-> Encode.string "Hello" |> encode |> checkSum.sum
-> 244 : Int
+
+{-| Sum all the bytes in a `Bytes`.
 -}
-byteSum : Bytes -> Int
-byteSum bytes =
-    bytes
-        |> intListFromBytes
-        |> List.sum
-        |> (\x -> x + 16)
+sumBytes : Bytes -> Int
+sumBytes bytes =
+    let
+        decoder =
+            Decode.loop { remaining = Bytes.width bytes, accum = 16 } sumBytesHelp
+    in
+    case Decode.decode decoder bytes of
+        Just v ->
+            v
+
+        Nothing ->
+            0
 
 
-sumEncoder : Bytes -> Encode.Encoder
-sumEncoder bytes =
-    bytes |> byteSum |> octalEncoder 6
+sumBytesHelp { remaining, accum } =
+    if remaining > 0 then
+        Decode.map (\new -> Decode.Loop { remaining = remaining - 1, accum = new + accum }) Decode.unsignedInt8
 
-
-
---
--- NOT EXPOSED
---
-
-
-intListFromBytes : Bytes -> List Int
-intListFromBytes bytes =
-    bytes
-        |> Decode.decode (decodeBytes (Bytes.width bytes) Decode.unsignedInt8)
-        |> Maybe.withDefault []
-
-
-
--- sum256 : List Int -> Int
--- sum256 intList =
---     modBy 256 (List.sum intList)
-
-
-decodeBytes : Int -> Decoder a -> Decoder (List a)
-decodeBytes len decoder =
-    loop ( len, [] ) (listStep decoder)
-
-
-listStep : Decoder a -> ( Int, List a ) -> Decoder (Step ( Int, List a ) (List a))
-listStep decoder ( n, xs ) =
-    if n <= 0 then
-        succeed (Done xs)
     else
-        map (\x -> Loop ( n - 1, x :: xs )) decoder
+        Decode.succeed (Decode.Done accum)

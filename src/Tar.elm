@@ -777,7 +777,7 @@ encodeMetaData metadata =
             preliminary
                 |> Encode.sequence
                 |> Encode.encode
-                |> CheckSum.sumEncoder
+                |> CheckSum.checksum
     in
     Encode.sequence
         [ Encode.bytes metaDataTop
