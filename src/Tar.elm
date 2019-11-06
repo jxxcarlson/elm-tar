@@ -28,6 +28,7 @@ import Bytes.Encode as Encode exposing (encode)
 import Char
 import CheckSum
 import Octal exposing (octalEncoder)
+import String.Graphemes
 import Utility
 
 
@@ -973,6 +974,9 @@ We must be careful with unicode characters here: for `String.length` all charact
 are the same width (namely 1), but when encoded as utf-8 (with `Encode.string`), some characters
 can take more than one byte.
 
+Functions in the `String` module implicitly use the character length. We use `String.Graphemes` here
+to ensure the string is within limits, but in fact a valid string (so no "half" characters).
+
 -}
 normalizeString : Int -> String -> String
 normalizeString desiredLength str =
@@ -990,7 +994,7 @@ normalizeString desiredLength str =
                         -- `desiredLength` bytes, not characters
                         |> String.left desiredLength
                         -- so this step is required
-                        |> dropLeftLoop (desiredLength - 1)
+                        |> dropRightLoop (desiredLength - 1)
 
                 paddingSize =
                     desiredLength - Encode.getStringWidth dropped
@@ -998,10 +1002,10 @@ normalizeString desiredLength str =
             dropped ++ String.repeat paddingSize "\u{0000}"
 
 
-dropLeftLoop : Int -> String -> String
-dropLeftLoop desiredLength str =
+dropRightLoop : Int -> String -> String
+dropRightLoop desiredLength str =
     if Encode.getStringWidth str > desiredLength then
-        dropLeftLoop desiredLength (String.dropRight 1 str)
+        dropRightLoop desiredLength (String.Graphemes.dropRight 1 str)
 
     else
         str
