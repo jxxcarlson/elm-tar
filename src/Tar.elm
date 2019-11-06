@@ -645,10 +645,23 @@ encodeFiles [(defaultMetadata, "This is a test"), (defaultMetadata, "Lah di dah 
 -}
 encodeTextFiles : List ( MetaData, String ) -> Encode.Encoder
 encodeTextFiles fileList =
-    Encode.sequence
-        (List.map (\item -> encodeTextFile (Tuple.first item) (Tuple.second item)) fileList
-            ++ [ Encode.string (normalizeString 1024 "") ]
-        )
+    let
+        folder ( metadata, string ) accum =
+            encodeTextFile metadata string :: accum
+    in
+    List.foldr folder [ endOfFileMarker ] fileList
+        |> Encode.sequence
+
+
+{-| Per the spec:
+
+> At the end of the archive file there are two 512-byte blocks filled with binary zeros as an end-of-file marker.
+
+-}
+endOfFileMarker : Encode.Encoder
+endOfFileMarker =
+    String.repeat 1024 "\u{0000}"
+        |> Encode.string
 
 
 {-|
@@ -685,7 +698,7 @@ encodeFiles : List ( MetaData, Data ) -> Encode.Encoder
 encodeFiles fileList =
     Encode.sequence
         (List.map (\( m, d ) -> encodeFile m d) fileList
-            ++ [ Encode.string (normalizeString 1024 "") ]
+            ++ [ endOfFileMarker ]
         )
 
 
@@ -870,23 +883,6 @@ encodeInt12 n =
 
 
 {- HELPERS FOR ENCODEING FILES -}
-
-
-{-| Add zeros at end of file to make its length a multiple of 512.
--}
-padContents : String -> String
-padContents str =
-    let
-        paddingLength =
-            modBy 512 (String.length str) |> (\x -> 512 - x)
-
-        nullString =
-            String.fromChar (Char.fromCode 0)
-
-        padding =
-            String.repeat paddingLength nullString
-    in
-    str ++ padding
 
 
 encodedSpace =
