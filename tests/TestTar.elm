@@ -3,6 +3,7 @@ module TestTar exposing (..)
 import Bytes.Encode as Encode
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer, int, list, string)
+import SHA256
 import Tar
 import Test exposing (..)
 
@@ -62,6 +63,22 @@ suite =
                     normalizeString 6 "LANDNÁMABÓK"
                         |> Encode.getStringWidth
                         |> Expect.equal 6
+            ]
+        , describe "hashes" <|
+            let
+                hashTest name items expected =
+                    test name <|
+                        \_ ->
+                            Tar.createArchive items
+                                |> SHA256.fromBytes
+                                |> SHA256.toHex
+                                |> Expect.equal expected
+            in
+            [ hashTest "empty" [] "5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+            , hashTest "string" [ ( Tar.defaultMetadata, Tar.StringData "foo" ) ] "f85654c84b6e9ca6989fc42fd5814063bbdb27ce116e2baad34f210f42a6145d"
+            , hashTest "bytes" [ ( Tar.defaultMetadata, Tar.BinaryData (Encode.encode (Encode.string "foo")) ) ] "f85654c84b6e9ca6989fc42fd5814063bbdb27ce116e2baad34f210f42a6145d"
+            , hashTest "file name too long 1" [ ( { defaultMetaData | filename = String.repeat 101 "a" }, Tar.StringData "foo" ) ] "e1fd20591cce478c384df041219d12d2fe8634e2aef1bfd42c0bdd15a532da83"
+            , hashTest "file name too long 2" [ ( { defaultMetaData | filename = String.repeat 102 "a" }, Tar.StringData "foo" ) ] "e1fd20591cce478c384df041219d12d2fe8634e2aef1bfd42c0bdd15a532da83"
             ]
         ]
 
