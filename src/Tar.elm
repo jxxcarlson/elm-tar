@@ -1,15 +1,4 @@
-module Tar
-    exposing
-        ( Data(..)
-        , MetaData
-        , createArchive
-        , extractArchive
-        , testArchive
-        , encodeFiles
-        , encodeTextFile
-        , encodeTextFiles
-        , defaultMetadata
-        )
+module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
 
 {-| Use
 
@@ -33,15 +22,14 @@ For more details, see the README. See also the demo app `./examples/Main.elm`
 
 -}
 
-import Bytes exposing (..)
+import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Decoder, Step(..), decode)
 import Bytes.Encode as Encode exposing (encode)
 import Char
-import Utility
 import CheckSum
 import Octal exposing (octalEncoder)
-import Time exposing (Posix)
-import Hex
+import Utility
+
 
 
 --
@@ -260,14 +248,15 @@ fileStep ( state, outputList ) =
                 ( headerInfo_, data ) :: xs ->
                     stateFromBlockInfo headerInfo_
     in
-        if state == EndOfData then
-            Decode.succeed (Done outputList)
-        else
-            let
-                newState =
-                    info outputList
-            in
-                Decode.map (\output -> Loop ( newState, output :: outputList )) decodeFile
+    if state == EndOfData then
+        Decode.succeed (Done outputList)
+
+    else
+        let
+            newState =
+                info outputList
+        in
+        Decode.map (\output -> Loop ( newState, output :: outputList )) decodeFile
 
 
 decodeFile : Decoder ( BlockInfo, Data )
@@ -290,6 +279,7 @@ decodeOtherBlocks headerInfo =
                 Just ext ->
                     if List.member ext textFileExtensions then
                         decodeStringBody (ExtendedMetaData fileRecord maybeExtension)
+
                     else
                         decodeBinaryBody (ExtendedMetaData fileRecord maybeExtension)
 
@@ -309,8 +299,8 @@ decodeStringBody fileHeaderInfo =
         (ExtendedMetaData fileRecord maybeExtension) =
             fileHeaderInfo
     in
-        Decode.string (round512 fileRecord.fileSize)
-            |> Decode.map (\str -> ( FileInfo fileHeaderInfo, StringData (smashNulls str) ))
+    Decode.string (round512 fileRecord.fileSize)
+        |> Decode.map (\str -> ( FileInfo fileHeaderInfo, StringData (smashNulls str) ))
 
 
 
@@ -326,14 +316,15 @@ decodeBinaryBody fileHeaderInfo =
         n =
             fileRecord.fileSize
     in
-        Decode.bytes (round512 fileRecord.fileSize)
-            |> Decode.map (\bytes -> ( FileInfo fileHeaderInfo, BinaryData (take n bytes) ))
+    Decode.bytes (round512 fileRecord.fileSize)
+        |> Decode.map (\bytes -> ( FileInfo fileHeaderInfo, BinaryData (take n bytes) ))
 
 
 {-|
 
 > tf |> getBlockInfo
 > { fileName = "test.txt", length = 512 }
+
 -}
 getBlockInfo : Bytes -> BlockInfo
 getBlockInfo bytes =
@@ -344,6 +335,7 @@ getBlockInfo bytes =
         False ->
             if decode (Decode.string 512) bytes == Just nullString512 then
                 NullBlock
+
             else
                 Error
 
@@ -365,12 +357,12 @@ getFileExtension str =
                 |> String.split "."
                 |> List.reverse
     in
-        case List.length fileParts > 1 of
-            True ->
-                List.head fileParts
+    case List.length fileParts > 1 of
+        True ->
+            List.head fileParts
 
-            False ->
-                Nothing
+        False ->
+            Nothing
 
 
 getFileHeaderInfo : Bytes -> ExtendedMetaData
@@ -397,7 +389,7 @@ getFileHeaderInfo bytes =
                 -- , typeFlag = getNumber 156 1 bytes
             }
     in
-        ExtendedMetaData metadata (getFileExtension fileName)
+    ExtendedMetaData metadata (getFileExtension fileName)
 
 
 
@@ -412,10 +404,11 @@ round512 n =
         residue =
             modBy 512 n
     in
-        if residue == 0 then
-            n
-        else
-            n + (512 - residue)
+    if residue == 0 then
+        n
+
+    else
+        n + (512 - residue)
 
 
 {-| isHeader bytes == True if and only if
@@ -426,6 +419,7 @@ isHeader : Bytes -> Bool
 isHeader bytes =
     if Bytes.width bytes == 512 then
         isHeader_ bytes
+
     else
         False
 
@@ -490,9 +484,9 @@ getMode bytes =
                 |> List.map (Octal.binaryDigits 3)
                 |> List.map filePermissionOfBinaryDigits
     in
-        addUser permissions nullMode
-            |> addGroup permissions
-            |> addOther permissions
+    addUser permissions nullMode
+        |> addGroup permissions
+        |> addOther permissions
 
 
 filePermissionOfBinaryDigits : List Int -> List FilePermission
@@ -603,7 +597,7 @@ simplifyOutput2 ( blockInfo, data ) =
         n =
             fileSizeOfBlockInfo blockInfo
     in
-        ( getFileDataFromHeaderInfo blockInfo, take2 n data )
+    ( getFileDataFromHeaderInfo blockInfo, take2 n data )
 
 
 take2 : Int -> Data -> Data
@@ -675,7 +669,7 @@ encodeTextFiles fileList =
           { metaData_ | filename = "c.binary" }
 
       content2 =
-          Hex.toBytes "1234" |> Maybe.withDefault (encode (Bytes.Encode.unsignedInt8 0))
+          Hex.Convert
 
       Tar.encodeFiles
           [ ( metaData1, StringData content1 )
@@ -683,7 +677,8 @@ encodeTextFiles fileList =
           ]
           |> Bytes.Encode.encode
 
-      Note: `Hex` is found in `jxxcarlson/hex`
+      Note: `Hex.Convert
+
 -}
 encodeFiles : List ( MetaData, Data ) -> Encode.Encoder
 encodeFiles fileList =
@@ -700,21 +695,8 @@ encodeFiles fileList =
 
 -}
 encodeTextFile : MetaData -> String -> Encode.Encoder
-encodeTextFile metaData_ contents =
-    let
-        metaData =
-            { metaData_ | fileSize = String.length contents }
-    in
-        Encode.sequence
-            (case contents == "" of
-                True ->
-                    [ encodeMetaData metaData ]
-
-                False ->
-                    [ encodeMetaData metaData
-                    , Encode.string (padContents contents)
-                    ]
-            )
+encodeTextFile metaData contents =
+    encodeBinaryFile metaData (Encode.encode (Encode.string contents))
 
 
 encodeFile : MetaData -> Data -> Encode.Encoder
@@ -728,20 +710,20 @@ encodeFile metaData data =
 
 
 encodeBinaryFile : MetaData -> Bytes -> Encode.Encoder
-encodeBinaryFile metaData_ bytes =
+encodeBinaryFile metaData bytes =
     let
-        metaData =
-            { metaData_ | fileSize = Bytes.width bytes }
+        width =
+            Bytes.width bytes
     in
-        case metaData.fileSize == 0 of
-            True ->
-                Encode.sequence [ encodeMetaData metaData ]
+    case width of
+        0 ->
+            encodeMetaData { metaData | fileSize = width }
 
-            False ->
-                Encode.sequence
-                    [ encodeMetaData metaData
-                    , encodePaddedBytes bytes
-                    ]
+        _ ->
+            Encode.sequence
+                [ encodeMetaData { metaData | fileSize = width }
+                , encodePaddedBytes bytes
+                ]
 
 
 encodePaddedBytes : Bytes -> Encode.Encoder
@@ -750,10 +732,10 @@ encodePaddedBytes bytes =
         paddingWidth =
             modBy 512 (Bytes.width bytes) |> (\x -> 512 - x)
     in
-        Encode.sequence
-            [ Encode.bytes bytes
-            , Encode.sequence <| List.repeat paddingWidth (Encode.unsignedInt8 0)
-            ]
+    Encode.sequence
+        [ Encode.bytes bytes
+        , Encode.sequence <| List.repeat paddingWidth (Encode.unsignedInt8 0)
+        ]
 
 
 
@@ -768,24 +750,24 @@ encodeMetaData metadata =
         fr =
             preliminaryEncodeMetaData metadata |> encode
     in
-        Encode.sequence
-            [ Encode.string (normalizeString 100 metadata.filename)
-            , encodeMode metadata.mode
-            , Encode.sequence [ octalEncoder 6 metadata.ownerID, encodedSpace, encodedNull ]
-            , Encode.sequence [ octalEncoder 6 metadata.groupID, encodedSpace, encodedNull ]
-            , Encode.sequence [ octalEncoder 11 metadata.fileSize, encodedSpace ]
-            , Encode.sequence [ octalEncoder 11 metadata.lastModificationTime, encodedSpace ]
-            , Encode.sequence [ CheckSum.sumEncoder fr, encodedNull, encodedSpace ]
-            , linkEncoder metadata.linkIndicator
-            , Encode.string (normalizeString 100 metadata.linkedFileName)
-            , Encode.sequence [ Encode.string "ustar", encodedNull ]
-            , Encode.string "00"
-            , Encode.string (normalizeString 32 metadata.userName)
-            , Encode.string (normalizeString 32 metadata.groupName)
-            , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
-            , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
-            , Encode.string (normalizeString 167 metadata.fileNamePrefix)
-            ]
+    Encode.sequence
+        [ Encode.string (normalizeString 100 metadata.filename)
+        , encodeMode metadata.mode
+        , Encode.sequence [ octalEncoder 6 metadata.ownerID, encodedSpace, encodedNull ]
+        , Encode.sequence [ octalEncoder 6 metadata.groupID, encodedSpace, encodedNull ]
+        , Encode.sequence [ octalEncoder 11 metadata.fileSize, encodedSpace ]
+        , Encode.sequence [ octalEncoder 11 metadata.lastModificationTime, encodedSpace ]
+        , Encode.sequence [ CheckSum.sumEncoder fr, encodedNull, encodedSpace ]
+        , linkEncoder metadata.linkIndicator
+        , Encode.string (normalizeString 100 metadata.linkedFileName)
+        , Encode.sequence [ Encode.string "ustar", encodedNull ]
+        , Encode.string "00"
+        , Encode.string (normalizeString 32 metadata.userName)
+        , Encode.string (normalizeString 32 metadata.groupName)
+        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
+        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
+        , Encode.string (normalizeString 167 metadata.fileNamePrefix)
+        ]
 
 
 preliminaryEncodeMetaData : MetaData -> Encode.Encoder
@@ -903,7 +885,7 @@ padContents str =
         padding =
             String.repeat paddingLength nullString
     in
-        str ++ padding
+    str ++ padding
 
 
 encodedSpace =
@@ -970,23 +952,59 @@ stripLeadingElement lead list =
         [ x ] ->
             if lead == x then
                 []
+
             else
                 [ x ]
 
         x :: xs ->
             if lead == x then
                 stripLeadingElement lead xs
+
             else
                 x :: xs
 
 
-{-| return string of length n, truncated
-if necessary, and then padded, if neccessary,
-with 0's on the right.
+{-| Encode a c-style null-delimited string of a specific length.
+
+  - the string capped a `length - 1`
+  - the string is padded with the null character to the desired length
+
+We must be careful with unicode characters here: for `String.length` all characters
+are the same width (namely 1), but when encoded as utf-8 (with `Encode.string`), some characters
+can take more than one byte.
+
 -}
 normalizeString : Int -> String -> String
-normalizeString n str =
-    str |> String.left n |> String.padRight n (Char.fromCode 0)
+normalizeString desiredLength str =
+    case desiredLength of
+        0 ->
+            -- just to be safe. otherwise unbounded recursion
+            ""
+
+        _ ->
+            let
+                dropped =
+                    str
+                        -- first `desiredLength` characters
+                        -- but this function should produce
+                        -- `desiredLength` bytes, not characters
+                        |> String.left desiredLength
+                        -- so this step is required
+                        |> dropLeftLoop (desiredLength - 1)
+
+                paddingSize =
+                    desiredLength - Encode.getStringWidth dropped
+            in
+            dropped ++ String.repeat paddingSize "\u{0000}"
+
+
+dropLeftLoop : Int -> String -> String
+dropLeftLoop desiredLength str =
+    if Encode.getStringWidth str > desiredLength then
+        dropLeftLoop desiredLength (String.dropRight 1 str)
+
+    else
+        str
 
 
 smashNulls : String -> String
