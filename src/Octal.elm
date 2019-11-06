@@ -1,29 +1,42 @@
-module Octal exposing (binaryDigits, integerValueofOctalList, octalEncoder, octalList)
+module Octal exposing (binaryDigits, digits, integerValueofOctalList, octalEncoder)
 
-import Bytes.Encode as Encode exposing (Encoder, encode)
-
-
-octalEncoder : Int -> Int -> Encoder
-octalEncoder width n =
-    octalList n
-        |> List.reverse
-        |> padList width 0
-        |> List.map (\x -> x + 48)
-        |> List.map Encode.unsignedInt8
-        |> Encode.sequence
+import Bytes.Encode as Encode exposing (Encoder)
 
 
-{-|
+{-| Per the spec
 
-> octalList 2001
-> [1,2,7,3]
-> Last significant digit first
+> All other fields are zero-filled octal numbers in ASCII. Each numeric field of width w contains w minus 1 digits, and a null.
 
 -}
-octalList : Int -> List Int
-octalList n =
+octalEncoder : Int -> Int -> Encoder
+octalEncoder width n =
+    let
+        octalDigits =
+            digits n
+                |> List.take (n - 1)
+                |> List.map (\x -> Encode.unsignedInt8 (x + 48))
+
+        padding =
+            List.repeat (width - List.length octalDigits) (Encode.unsignedInt8 48)
+    in
+    Encode.sequence (padding ++ octalDigits)
+
+
+{-| octal digits, most significant digit first
+
+    octalList 2001
+        --> [ 3, 7, 2, 1 ]
+
+-}
+digits : Int -> List Int
+digits n =
+    octalDigitsHelp n []
+
+
+octalDigitsHelp : Int -> List Int -> List Int
+octalDigitsHelp n accum =
     if n < 8 then
-        [ n ]
+        n :: accum
 
     else
         let
@@ -33,7 +46,7 @@ octalList n =
             hi =
                 n // 8
         in
-        lo :: octalList hi
+        octalDigitsHelp hi (lo :: accum)
 
 
 integerValueofOctalList : List Int -> Int

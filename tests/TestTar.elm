@@ -95,7 +95,8 @@ suite =
                     test ("octal " ++ String.fromInt int) <|
                         \_ ->
                             int
-                                |> Octal.octalList
+                                |> Octal.digits
+                                |> List.reverse
                                 |> Expect.equal list
 
                 octalHexTest width int string =
