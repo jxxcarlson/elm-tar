@@ -964,13 +964,47 @@ stripLeadingElement lead list =
                 x :: xs
 
 
-{-| return string of length n, truncated
-if necessary, and then padded, if neccessary,
-with 0's on the right.
+{-| Encode a c-style null-delimited string of a specific length.
+
+  - the string capped a `length - 1`
+  - the string is padded with the null character to the desired length
+
+We must be careful with unicode characters here: for `String.length` all characters
+are the same width (namely 1), but when encoded as utf-8 (with `Encode.string`), some characters
+can take more than one byte.
+
 -}
 normalizeString : Int -> String -> String
-normalizeString n str =
-    str |> String.left n |> String.padRight n (Char.fromCode 0)
+normalizeString desiredLength str =
+    case desiredLength of
+        0 ->
+            -- just to be safe. otherwise unbounded recursion
+            ""
+
+        _ ->
+            let
+                dropped =
+                    str
+                        -- first `desiredLength` characters
+                        -- but this function should produce
+                        -- `desiredLength` bytes, not characters
+                        |> String.left desiredLength
+                        -- so this step is required
+                        |> dropLeftLoop (desiredLength - 1)
+
+                paddingSize =
+                    desiredLength - Encode.getStringWidth dropped
+            in
+            dropped ++ String.repeat paddingSize "\u{0000}"
+
+
+dropLeftLoop : Int -> String -> String
+dropLeftLoop desiredLength str =
+    if Encode.getStringWidth str > desiredLength then
+        dropLeftLoop desiredLength (String.dropRight 1 str)
+
+    else
+        str
 
 
 smashNulls : String -> String
