@@ -1,24 +1,21 @@
-module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
+module Tar exposing
+    ( createArchive, extractArchive
+    , Data(..), MetaData, defaultMetadata
+    , encodeFiles, encodeTextFile, encodeTextFiles
+    )
 
-{-| Use
+{-| For more details, see the README. See also the demo app `./examples/Main.elm`
 
-encodeMetaData
+@docs createArchive, extractArchive
 
-       createArchive : List ( MetaData, Data ) -> Bytes
+@docs Data, MetaData, defaultMetadata
 
-to create4 a tar archive from arbitrary set of files which may contain either text or binary
-data. To extract files from an archive, imitate this example:
 
-       extractArchive testArchive
+## Encoders
 
-For more details, see the README. See also the demo app `./examples/Main.elm`
+Convenient for integration with other `Bytes.Encode.Encoder`s.
 
-@docs Data, MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
-
--}
-
-{-
-   XXXX module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
+@docs encodeFiles, encodeTextFile, encodeTextFiles
 
 -}
 
@@ -38,10 +35,14 @@ import Utility
 --
 
 
-{-| Use `StringData String` for text data,
-`BinaryData Bytes` for binary data, e.g.,
-`StringData "This is a test"` or
-`BinaryData someBytes`
+{-| Use `StringData String` for text data, `BinaryData Bytes` for binary data:
+
+    import Bytes.Encode as Encode
+
+    StringData "This is a test"
+
+    BinaryData (Encode.encode (Encode.string "foo"))
+
 -}
 type Data
     = StringData String
@@ -65,24 +66,30 @@ type alias MetaData =
     , userName : String
     , groupName : String
     , fileNamePrefix : String
-
-    -- , typeFlag : Ascii
     }
 
 
-type alias Ascii =
-    Int
+{-| Defined as
 
+    defaultMetadata : MetaData
+    defaultMetadata =
+        { filename = "test.txt"
+        , mode = blankMode
+        , ownerID = 501
+        , groupID = 123
+        , fileSize = 20
+        , lastModificationTime = 1542665285
+        , linkIndicator = NormalFile
+        , linkedFileName = "bar.txt"
+        , userName = "anonymous"
+        , groupName = "staff"
+        , fileNamePrefix = "abc"
+        }
 
-{-| defaultMetadata is a dummy MetaData value that you modify
-to suit your needs. It contains a lot of boilerplates
+Example usage:
 
-Example
-
-metaData= { defaultMetadata | filename = "Test.txt" }
-
-See the definition of MetaData to see what other fields you
-may want to modify, or see `/examples/Main.elm`.
+    myMetaData =
+        { defaultMetadata | filename = "Test.txt" }
 
 -}
 defaultMetadata : MetaData
@@ -98,8 +105,6 @@ defaultMetadata =
     , userName = "anonymous"
     , groupName = "staff"
     , fileNamePrefix = "abc"
-
-    -- , typeFlag = 0
     }
 
 
@@ -182,34 +187,11 @@ type alias OutputList =
 
 
 --
--- TESTING
---
-
-
-{-| A small tar archive for testing purposes
--}
-testArchive : Bytes
-testArchive =
-    encodeTextFiles
-        [ ( { defaultMetadata | filename = "one.txt" }, "One" )
-        , ( { defaultMetadata | filename = "two.txt" }, "Two" )
-        ]
-        |> encode
-
-
-
---
 -- EXTRACT ARCHIVE
 --
 
 
-{-| Try
-
-> import Tar exposing(..)
-> extractArchive testArchive
-
-to test this function
-
+{-| Decode an archive into its constituent files.
 -}
 extractArchive : Bytes -> List ( MetaData, Data )
 extractArchive bytes =
@@ -239,25 +221,21 @@ decodeFiles =
 
 fileStep : ( State, OutputList ) -> Decoder (Step ( State, OutputList ) OutputList)
 fileStep ( state, outputList ) =
-    let
-        info : OutputList -> State
-        info outputList_ =
-            case outputList_ of
-                [] ->
-                    Start
+    case state of
+        EndOfData ->
+            Decode.succeed (Done outputList)
 
-                ( headerInfo_, data ) :: xs ->
-                    stateFromBlockInfo headerInfo_
-    in
-    if state == EndOfData then
-        Decode.succeed (Done outputList)
+        _ ->
+            let
+                newState =
+                    case outputList of
+                        [] ->
+                            Start
 
-    else
-        let
-            newState =
-                info outputList
-        in
-        Decode.map (\output -> Loop ( newState, output :: outputList )) decodeFile
+                        ( headerInfo, _ ) :: _ ->
+                            stateFromBlockInfo headerInfo
+            in
+            Decode.map (\output -> Loop ( newState, output :: outputList )) decodeFile
 
 
 decodeFile : Decoder ( BlockInfo, Data )
@@ -304,10 +282,6 @@ decodeStringBody fileHeaderInfo =
         |> Decode.map (\str -> ( FileInfo fileHeaderInfo, StringData (smashNulls str) ))
 
 
-
--- StringData (String.left fileRecord.fileSize str) )
-
-
 decodeBinaryBody : ExtendedMetaData -> Decoder ( BlockInfo, Data )
 decodeBinaryBody fileHeaderInfo =
     let
@@ -318,7 +292,7 @@ decodeBinaryBody fileHeaderInfo =
             fileRecord.fileSize
     in
     Decode.bytes (round512 fileRecord.fileSize)
-        |> Decode.map (\bytes -> ( FileInfo fileHeaderInfo, BinaryData (take n bytes) ))
+        |> Decode.map (\bytes -> ( FileInfo fileHeaderInfo, BinaryData (takeBytes n bytes) ))
 
 
 {-|
@@ -329,16 +303,14 @@ decodeBinaryBody fileHeaderInfo =
 -}
 getBlockInfo : Bytes -> BlockInfo
 getBlockInfo bytes =
-    case isHeader_ bytes of
-        True ->
-            FileInfo (getFileHeaderInfo bytes)
+    if isHeader_ bytes then
+        FileInfo (getFileHeaderInfo bytes)
 
-        False ->
-            if decode (Decode.string 512) bytes == Just nullString512 then
-                NullBlock
+    else if decode (Decode.string 512) bytes == Just nullString512 then
+        NullBlock
 
-            else
-                Error
+    else
+        Error
 
 
 nullString512 : String
@@ -386,8 +358,6 @@ getFileHeaderInfo bytes =
                 , userName = getString 265 32 bytes
                 , groupName = getString 297 32 bytes
                 , fileNamePrefix = getString 345 155 bytes
-
-                -- , typeFlag = getNumber 156 1 bytes
             }
     in
     ExtendedMetaData metadata (getFileExtension fileName)
@@ -598,23 +568,27 @@ simplifyOutput2 ( blockInfo, data ) =
         n =
             fileSizeOfBlockInfo blockInfo
     in
-    ( getFileDataFromHeaderInfo blockInfo, take2 n data )
+    ( getFileDataFromHeaderInfo blockInfo, takeBytesData n data )
 
 
-take2 : Int -> Data -> Data
-take2 k data =
+takeBytesData : Int -> Data -> Data
+takeBytesData k data =
     case data of
         StringData str ->
             StringData str
 
         BinaryData bytes_ ->
-            BinaryData (take k bytes_)
+            BinaryData (takeBytes k bytes_)
 
 
-take : Int -> Bytes -> Bytes
-take k bytes =
-    Decode.decode (Decode.bytes k) bytes
-        |> Maybe.withDefault (Encode.encode (Encode.unsignedInt8 0))
+takeBytes : Int -> Bytes -> Bytes
+takeBytes k bytes =
+    case Decode.decode (Decode.bytes k) bytes of
+        Just v ->
+            v
+
+        Nothing ->
+            bytes
 
 
 
@@ -625,32 +599,24 @@ take k bytes =
 
 {-| Example:
 
-> data1 = ( { defaultMetadata | filename = "one.txt" }, StringData "One" )
-> data2 = ( { defaultMetadata | filename = "two.txt" }, StringData "Two" )
-> createArchive [data1, data2]
+    data1 : ( MetaData, Data )
+    data1 =
+        ( { defaultMetadata | filename = "one.txt" }
+        , StringData "One"
+        )
 
-> createArchive [data1, data2]
-> <3072 bytes> : Bytes.Bytes
+    data2 : ( MetaData, Data )
+    data2 =
+        ( { defaultMetadata | filename = "two.txt" }
+        , StringData "Two"
+        )
+
+    createArchive [data1, data2]
 
 -}
 createArchive : List ( MetaData, Data ) -> Bytes
 createArchive dataList =
     encodeFiles dataList |> encode
-
-
-{-| Example
-
-encodeFiles [(defaultMetadata, "This is a test"), (defaultMetadata, "Lah di dah do day!")] |> Bytes.Encode.encode == <2594 bytes> : Bytes
-
--}
-encodeTextFiles : List ( MetaData, String ) -> Encode.Encoder
-encodeTextFiles fileList =
-    let
-        folder ( metadata, string ) accum =
-            encodeTextFile metadata string :: accum
-    in
-    List.foldr folder [ endOfFileMarker ] fileList
-        |> Encode.sequence
 
 
 {-| Per the spec:
@@ -664,34 +630,37 @@ endOfFileMarker =
         |> Encode.string
 
 
-{-|
+{-| Encoder for a list of files
 
-      Example
+    import Bytes
+    import Bytes.Encode as Encode
+    import Tar exposing (defaultMetaData)
 
-      import Tar exposing(defaultMetadata)
+    metaData1 : Tar.MetaData
+    metaData1 =
+        { defaultMetaData | filename = "a.txt" }
 
-      metaData_ =
-          defaultMetadata
+    content1 : String
+    content1 =
+        "One two three\n"
 
-      metaData1 =
-          { metaData_ | filename = "a.txt" }
+    metaData2 : Tar.MetaData
+    metaData2
+        { defaultMetaData | filename = "c.binary" }
 
-      content1 =
-          "One two three\n"
+    content2 : Bytes.Bytes
+    content2 =
+        "1345"
+          |> Encode.string
+          |> Encode.encode
 
-      metaData2
-          { metaData_ | filename = "c.binary" }
-
-      content2 =
-          Hex.Convert
-
-      Tar.encodeFiles
-          [ ( metaData1, StringData content1 )
-          , ( metaData2, BinaryData content2 )
-          ]
-          |> Bytes.Encode.encode
-
-      Note: `Hex.Convert
+    result : Bytes
+    result =
+        [ ( metaData1, Tar.StringData content1 )
+        , ( metaData2, Tar.BinaryData content2 )
+        ]
+        |> Tar.encodeFiles
+        |> Bytes.Encode.encode
 
 -}
 encodeFiles : List ( MetaData, Data ) -> Encode.Encoder
@@ -704,15 +673,21 @@ encodeFiles fileList =
         |> Encode.sequence
 
 
-{-| Example:
-
-> encodeTextFile defaultMetadata "Test!" |> encode
-> <1024 bytes> : Bytes.Bytes
-
--}
+{-| -}
 encodeTextFile : MetaData -> String -> Encode.Encoder
 encodeTextFile metaData contents =
     encodeBinaryFile metaData (Encode.encode (Encode.string contents))
+
+
+{-| -}
+encodeTextFiles : List ( MetaData, String ) -> Encode.Encoder
+encodeTextFiles fileList =
+    let
+        folder ( metadata, string ) accum =
+            encodeTextFile metadata string :: accum
+    in
+    List.foldr folder [ endOfFileMarker ] fileList
+        |> Encode.sequence
 
 
 encodeFile : MetaData -> Data -> Encode.Encoder
