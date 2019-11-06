@@ -3,6 +3,8 @@ module TestTar exposing (..)
 import Bytes.Encode as Encode
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer, int, list, string)
+import Hex.Convert
+import Octal
 import SHA256
 import String.Graphemes
 import Tar
@@ -86,6 +88,34 @@ suite =
             , hashTest "bytes" [ ( Tar.defaultMetadata, Tar.BinaryData (Encode.encode (Encode.string "foo")) ) ] "f85654c84b6e9ca6989fc42fd5814063bbdb27ce116e2baad34f210f42a6145d"
             , hashTest "file name too long 1" [ ( { defaultMetaData | filename = String.repeat 101 "a" }, Tar.StringData "foo" ) ] "e1fd20591cce478c384df041219d12d2fe8634e2aef1bfd42c0bdd15a532da83"
             , hashTest "file name too long 2" [ ( { defaultMetaData | filename = String.repeat 102 "a" }, Tar.StringData "foo" ) ] "e1fd20591cce478c384df041219d12d2fe8634e2aef1bfd42c0bdd15a532da83"
+            ]
+        , describe "octal" <|
+            let
+                octalListTest int list =
+                    test ("octal " ++ String.fromInt int) <|
+                        \_ ->
+                            int
+                                |> Octal.octalList
+                                |> Expect.equal list
+
+                octalHexTest width int string =
+                    test ("octal hex " ++ String.fromInt width ++ " " ++ String.fromInt int) <|
+                        \_ ->
+                            Octal.octalEncoder int width
+                                |> Encode.encode
+                                |> Hex.Convert.toString
+                                |> Expect.equal string
+            in
+            [ octalListTest 2001 [ 1, 2, 7, 3 ]
+            , octalListTest 2019 [ 3, 4, 7, 3 ]
+            , octalListTest 8 [ 0, 1 ]
+            , octalListTest 64 [ 0, 0, 1 ]
+
+            -- hex
+            , octalHexTest 6 64 "30303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303036"
+            , octalHexTest 6 65 "3030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303036"
+            , octalHexTest 6 8 "3030303030303036"
+            , octalHexTest 12 8 "3030303030303134"
             ]
         ]
 
