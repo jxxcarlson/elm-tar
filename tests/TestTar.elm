@@ -4,6 +4,7 @@ import Bytes.Encode as Encode
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer, int, list, string)
 import SHA256
+import String.Graphemes
 import Tar
 import Test exposing (..)
 
@@ -63,6 +64,12 @@ suite =
                     normalizeString 6 "LANDNÁMABÓK"
                         |> Encode.getStringWidth
                         |> Expect.equal 6
+            , test "complex utf case" <|
+                \_ ->
+                    "ab\u{1F9B8}\u{1F3FD}cd"
+                        |> normalizeString 9
+                        |> String.toList
+                        |> Expect.equal (List.map Char.fromCode [ 0x61, 0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ])
             ]
         , describe "hashes" <|
             let
@@ -105,7 +112,7 @@ normalizeString desiredLength str =
                         -- `desiredLength` bytes, not characters
                         |> String.left desiredLength
                         -- so this step is required
-                        |> dropLeftLoop (desiredLength - 1)
+                        |> dropRightLoop (desiredLength - 1)
 
                 paddingSize =
                     desiredLength - Encode.getStringWidth dropped
@@ -113,10 +120,10 @@ normalizeString desiredLength str =
             dropped ++ String.repeat paddingSize "\u{0000}"
 
 
-dropLeftLoop : Int -> String -> String
-dropLeftLoop desiredLength str =
+dropRightLoop : Int -> String -> String
+dropRightLoop desiredLength str =
     if Encode.getStringWidth str > desiredLength then
-        dropLeftLoop desiredLength (String.dropRight 1 str)
+        dropRightLoop desiredLength (String.Graphemes.dropRight 1 str)
 
     else
         str
