@@ -1,5 +1,7 @@
-module Octal exposing (binaryDigits, digits, integerValueofOctalList, octalEncoder)
+module Octal exposing (binaryDigits, decode, digits, encode, integerValueofOctalList)
 
+import Bytes
+import Bytes.Decode as Decode exposing (Decoder)
 import Bytes.Encode as Encode exposing (Encoder)
 
 
@@ -8,8 +10,8 @@ import Bytes.Encode as Encode exposing (Encoder)
 > All other fields are zero-filled octal numbers in ASCII. Each numeric field of width w contains w minus 1 digits, and a null.
 
 -}
-octalEncoder : Int -> Int -> Encoder
-octalEncoder width n =
+encode : Int -> Int -> Encoder
+encode width n =
     let
         octalDigits =
             digits n
@@ -17,9 +19,26 @@ octalEncoder width n =
                 |> List.map (\x -> Encode.unsignedInt8 (x + 48))
 
         padding =
-            List.repeat (width - List.length octalDigits) (Encode.unsignedInt8 48)
+            List.repeat (width - List.length octalDigits - 1) (Encode.unsignedInt8 48)
     in
-    Encode.sequence (padding ++ octalDigits)
+    Encode.sequence (padding ++ octalDigits ++ [ Encode.unsignedInt8 0 ])
+
+
+decode : Int -> Decoder Int
+decode n =
+    Decode.loop { remaining = n, accum = 0 } decodeHelp
+
+
+decodeHelp { remaining, accum } =
+    case remaining of
+        0 ->
+            Decode.succeed (Decode.Done accum)
+
+        1 ->
+            Decode.map (\_ -> Decode.Done accum) Decode.unsignedInt8
+
+        _ ->
+            Decode.map (\new -> Decode.Loop { remaining = remaining - 1, accum = 8 * accum + (new - 48) }) Decode.unsignedInt8
 
 
 {-| octal digits, most significant digit first

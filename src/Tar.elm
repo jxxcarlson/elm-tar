@@ -1,6 +1,6 @@
 module Tar exposing
     ( createArchive, extractArchive
-    , Data(..), MetaData, defaultMetadata
+    , Data(..), MetaData, defaultMetaData
     , encodeFiles, encodeTextFile, encodeTextFiles
     )
 
@@ -8,7 +8,7 @@ module Tar exposing
 
 @docs createArchive, extractArchive
 
-@docs Data, MetaData, defaultMetadata
+@docs Data, MetaData, defaultMetaData
 
 
 ## Encoders
@@ -19,12 +19,13 @@ Convenient for integration with other `Bytes.Encode.Encoder`s.
 
 -}
 
+import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Decoder, Step(..), decode)
 import Bytes.Encode as Encode exposing (encode)
 import Char
 import CheckSum
-import Octal exposing (octalEncoder)
+import Octal
 import String.Graphemes
 import Utility
 
@@ -51,7 +52,7 @@ type Data
 
 {-| A MetaData value contains the information, e.g.,
 file name and file length, needed to construct the header
-for a file in the tar archive. You may use `defaultMetadata` as
+for a file in the tar archive. You may use `defaultMetaData` as
 a starting point, modifying only what is needed.
 -}
 type alias MetaData =
@@ -71,8 +72,8 @@ type alias MetaData =
 
 {-| Defined as
 
-    defaultMetadata : MetaData
-    defaultMetadata =
+    defaultMetaData : MetaData
+    defaultMetaData =
         { filename = "test.txt"
         , mode = blankMode
         , ownerID = 501
@@ -89,11 +90,11 @@ type alias MetaData =
 Example usage:
 
     myMetaData =
-        { defaultMetadata | filename = "Test.txt" }
+        { defaultMetaData | filename = "Test.txt" }
 
 -}
-defaultMetadata : MetaData
-defaultMetadata =
+defaultMetaData : MetaData
+defaultMetaData =
     { filename = "test.txt"
     , mode = blankMode
     , ownerID = 501
@@ -109,23 +110,19 @@ defaultMetadata =
 
 
 type alias Mode =
-    { user : List FilePermission
-    , group : List FilePermission
-    , other : List FilePermission
-    , system : List SystemInfo
+    { owner : FilePermission
+    , group : FilePermission
+    , other : FilePermission
+    , setUserID : Bool
+    , setGroupID : Bool
     }
 
 
-type SystemInfo
-    = SUID
-    | SGID
-    | SVTX
-
-
-type FilePermission
-    = Read
-    | Write
-    | Execute
+type alias FilePermission =
+    { read : Bool
+    , write : Bool
+    , execute : Bool
+    }
 
 
 type Link
@@ -171,12 +168,6 @@ fileExtension (ExtendedMetaData metaData ext) =
     ext
 
 
-type State
-    = Start
-    | Processing
-    | EndOfData
-
-
 type alias Output =
     ( BlockInfo, Data )
 
@@ -195,12 +186,17 @@ type alias OutputList =
 -}
 extractArchive : Bytes -> List ( MetaData, Data )
 extractArchive bytes =
-    bytes
-        |> decode decodeFiles
-        |> Maybe.withDefault []
-        |> List.filter (\x -> List.member (blockInfoOfOuput x) [ NullBlock, Error ] |> not)
-        |> List.map simplifyOutput
-        |> List.reverse
+    decodeArchive bytes
+
+
+decodeArchive : Bytes -> List ( MetaData, Data )
+decodeArchive bytes =
+    case Decode.decode (decodeFiles (Bytes.width bytes // 512)) bytes of
+        Just v ->
+            List.map (Tuple.mapSecond BinaryData) v
+
+        Nothing ->
+            []
 
 
 
@@ -214,110 +210,60 @@ extractArchive bytes =
 > decode decodeFiles testArchive
 
 -}
-decodeFiles : Decoder OutputList
-decodeFiles =
-    Decode.loop ( Start, [] ) fileStep
+decodeFiles : Int -> Decoder (List ( MetaData, Bytes ))
+decodeFiles n =
+    Decode.loop { state = Start, remaining = n, files = [] } fileStep
 
 
-fileStep : ( State, OutputList ) -> Decoder (Step ( State, OutputList ) OutputList)
-fileStep ( state, outputList ) =
-    case state of
-        EndOfData ->
-            Decode.succeed (Done outputList)
-
-        _ ->
-            let
-                newState =
-                    case outputList of
-                        [] ->
-                            Start
-
-                        ( headerInfo, _ ) :: _ ->
-                            stateFromBlockInfo headerInfo
-            in
-            Decode.map (\output -> Loop ( newState, output :: outputList )) decodeFile
+type State
+    = Start
+    | Processing MetaData (List Bytes)
 
 
-decodeFile : Decoder ( BlockInfo, Data )
-decodeFile =
-    decodeFirstBlock
-        |> Decode.andThen (\blockInfo -> decodeOtherBlocks blockInfo)
-
-
-decodeFirstBlock : Decoder BlockInfo
-decodeFirstBlock =
-    Decode.bytes 512
-        |> Decode.map (\bytes -> getBlockInfo bytes)
-
-
-decodeOtherBlocks : BlockInfo -> Decoder ( BlockInfo, Data )
-decodeOtherBlocks headerInfo =
-    case headerInfo of
-        FileInfo (ExtendedMetaData fileRecord maybeExtension) ->
-            case maybeExtension of
-                Just ext ->
-                    if List.member ext textFileExtensions then
-                        decodeStringBody (ExtendedMetaData fileRecord maybeExtension)
-
-                    else
-                        decodeBinaryBody (ExtendedMetaData fileRecord maybeExtension)
-
-                Nothing ->
-                    decodeBinaryBody (ExtendedMetaData fileRecord maybeExtension)
-
-        NullBlock ->
-            Decode.succeed ( NullBlock, StringData "NullBlock" )
-
-        Error ->
-            Decode.succeed ( Error, StringData "Error" )
-
-
-decodeStringBody : ExtendedMetaData -> Decoder ( BlockInfo, Data )
-decodeStringBody fileHeaderInfo =
+fileStep { state, remaining, files } =
     let
-        (ExtendedMetaData fileRecord maybeExtension) =
-            fileHeaderInfo
+        build meta blocks =
+            ( meta
+            , List.reverse blocks
+                |> List.map Encode.bytes
+                |> Encode.sequence
+                |> Encode.encode
+                |> takeBytes meta.fileSize
+            )
     in
-    Decode.string (round512 fileRecord.fileSize)
-        |> Decode.map (\str -> ( FileInfo fileHeaderInfo, StringData (smashNulls str) ))
+    if remaining > 0 then
+        Decode.bytes 512
+            |> Decode.andThen
+                (\block ->
+                    case state of
+                        Start ->
+                            case Decode.decode decodeMetaData block of
+                                Nothing ->
+                                    Decode.fail
 
+                                Just meta ->
+                                    Decode.succeed { state = Processing meta [], remaining = remaining - 1, files = files }
 
-decodeBinaryBody : ExtendedMetaData -> Decoder ( BlockInfo, Data )
-decodeBinaryBody fileHeaderInfo =
-    let
-        (ExtendedMetaData fileRecord maybeExtension) =
-            fileHeaderInfo
+                        Processing meta blocks ->
+                            case Decode.decode decodeMetaData block of
+                                Nothing ->
+                                    Decode.succeed { state = Processing meta (block :: blocks), remaining = remaining - 1, files = files }
 
-        n =
-            fileRecord.fileSize
-    in
-    Decode.bytes (round512 fileRecord.fileSize)
-        |> Decode.map (\bytes -> ( FileInfo fileHeaderInfo, BinaryData (takeBytes n bytes) ))
-
-
-{-|
-
-> tf |> getBlockInfo
-> { fileName = "test.txt", length = 512 }
-
--}
-getBlockInfo : Bytes -> BlockInfo
-getBlockInfo bytes =
-    if isHeader_ bytes then
-        FileInfo (getFileHeaderInfo bytes)
-
-    else if decode (Decode.string 512) bytes == Just nullString512 then
-        NullBlock
+                                Just newMeta ->
+                                    Decode.succeed { state = Processing newMeta [], remaining = remaining - 1, files = build meta blocks :: files }
+                )
+            |> Decode.map Decode.Loop
 
     else
-        Error
+        case state of
+            Start ->
+                Decode.succeed (Decode.Done (List.reverse files))
+
+            Processing meta blocks ->
+                Decode.succeed (Decode.Done (List.reverse (build meta blocks :: files)))
 
 
-nullString512 : String
-nullString512 =
-    String.repeat 512 (String.fromChar (Char.fromCode 0))
-
-
+textFileExtensions : List String
 textFileExtensions =
     [ "text", "txt", "tex", "csv", "html" ]
 
@@ -330,37 +276,21 @@ getFileExtension str =
                 |> String.split "."
                 |> List.reverse
     in
-    case List.length fileParts > 1 of
-        True ->
-            List.head fileParts
+    if List.length fileParts > 1 then
+        List.head fileParts
 
-        False ->
-            Nothing
+    else
+        Nothing
 
 
 getFileHeaderInfo : Bytes -> ExtendedMetaData
 getFileHeaderInfo bytes =
-    let
-        fileName =
-            getFileName bytes
-                |> Maybe.withDefault "unknownFileName"
+    case Decode.decode decodeMetaData bytes of
+        Nothing ->
+            ExtendedMetaData defaultMetaData Nothing
 
-        metadata =
-            { defaultMetadata
-                | filename = fileName
-                , mode = getMode bytes
-                , ownerID = getNumber 108 8 bytes
-                , groupID = getNumber 116 8 bytes
-                , fileSize = getFileLength bytes
-                , lastModificationTime = 0
-                , linkIndicator = NormalFile
-                , linkedFileName = "foo.txt"
-                , userName = getString 265 32 bytes
-                , groupName = getString 297 32 bytes
-                , fileNamePrefix = getString 345 155 bytes
-            }
-    in
-    ExtendedMetaData metadata (getFileExtension fileName)
+        Just ({ filename } as metadata) ->
+            ExtendedMetaData metadata (getFileExtension filename)
 
 
 
@@ -382,151 +312,60 @@ round512 n =
         n + (512 - residue)
 
 
-{-| isHeader bytes == True if and only if
-bytes has width 512 and contains the
-string "ustar"
--}
-isHeader : Bytes -> Bool
-isHeader bytes =
-    if Bytes.width bytes == 512 then
-        isHeader_ bytes
+modeBits =
+    { uid = 2048
+    , gid = 1024
 
-    else
-        False
-
-
-isHeader_ : Bytes -> Bool
-isHeader_ bytes =
-    bytes
-        |> decode (Decode.string 512)
-        |> Maybe.map (\str -> String.slice 257 262 str == "ustar")
-        |> Maybe.withDefault False
-
-
-getFileName : Bytes -> Maybe String
-getFileName bytes =
-    bytes
-        |> decode (Decode.string 100)
-        |> Maybe.map (String.replace (String.fromChar (Char.fromCode 0)) "")
+    -- reserved/unused
+    , reserved =
+        512
+    , owner =
+        { read = 256
+        , write = 128
+        , execute = 64
+        }
+    , group =
+        { read = 32
+        , write = 16
+        , execute = 8
+        }
+    , other =
+        { read = 4
+        , write = 2
+        , execute = 1
+        }
+    }
 
 
-getFileLength : Bytes -> Int
-getFileLength bytes =
-    bytes
-        |> decode (Decode.string 256)
-        |> Maybe.map (String.slice 124 136)
-        |> Maybe.map (stripLeadingString "0")
-        |> Maybe.map String.trim
-        |> Maybe.andThen String.toInt
-        |> Maybe.withDefault 0
-
-
-getNumber : Int -> Int -> Bytes -> Int
-getNumber begin length bytes =
-    bytes
-        |> decode (Decode.string 256)
-        |> Maybe.map (String.slice begin (begin + length - 1))
-        |> Maybe.map (String.split "")
-        |> Maybe.withDefault (List.repeat length "0")
-        |> List.map String.toInt
-        |> Utility.maybeValues
-        |> Octal.integerValueofOctalList
-
-
-getString : Int -> Int -> Bytes -> String
-getString begin length bytes =
-    bytes
-        |> decode (Decode.string 256)
-        |> Maybe.map (String.slice begin (begin + length - 1))
-        |> Maybe.withDefault "Oops!"
-
-
-getMode : Bytes -> Mode
-getMode bytes =
-    let
-        permissions =
-            bytes
-                |> decode (Decode.string 256)
-                |> Maybe.map (String.slice 102 106)
-                |> Maybe.map (String.split "")
-                |> Maybe.withDefault [ "0", "6", "4", "4" ]
-                |> List.map String.toInt
-                |> Utility.maybeValues
-                |> List.map (Octal.binaryDigits 3)
-                |> List.map filePermissionOfBinaryDigits
-    in
-    addUser permissions nullMode
-        |> addGroup permissions
-        |> addOther permissions
-
-
-filePermissionOfBinaryDigits : List Int -> List FilePermission
-filePermissionOfBinaryDigits binaryDigits =
-    canRead binaryDigits []
-        |> canWrite binaryDigits
-        |> canExecute binaryDigits
-
-
-addUser : List (List FilePermission) -> Mode -> Mode
-addUser lp mode =
-    case Utility.listGetAt 1 lp of
-        Just p ->
-            { mode | user = p }
-
-        _ ->
-            mode
-
-
-addGroup : List (List FilePermission) -> Mode -> Mode
-addGroup lp mode =
-    case Utility.listGetAt 2 lp of
-        Just p ->
-            { mode | group = p }
-
-        _ ->
-            mode
-
-
-addOther : List (List FilePermission) -> Mode -> Mode
-addOther lp mode =
-    case Utility.listGetAt 3 lp of
-        Just p ->
-            { mode | other = p }
-
-        _ ->
-            mode
-
-
-{-| Assume fpl is like [1,1,0]}
--}
-canRead : List Int -> List FilePermission -> List FilePermission
-canRead binaryDigits fpl =
-    case Utility.listGetAt 0 binaryDigits of
-        Just 1 ->
-            Read :: fpl
-
-        _ ->
-            fpl
-
-
-canWrite : List Int -> List FilePermission -> List FilePermission
-canWrite binaryDigits fpl =
-    case Utility.listGetAt 1 binaryDigits of
-        Just 1 ->
-            Write :: fpl
-
-        _ ->
-            fpl
-
-
-canExecute : List Int -> List FilePermission -> List FilePermission
-canExecute binaryDigits fpl =
-    case Utility.listGetAt 2 binaryDigits of
-        Just 1 ->
-            Execute :: fpl
-
-        _ ->
-            fpl
+decodeMode : Decoder Mode
+decodeMode =
+    Octal.decode 8
+        |> Decode.map
+            (\flags ->
+                let
+                    isSet : Int -> Int -> Bool
+                    isSet bit pattern =
+                        Bitwise.and bit pattern /= 0
+                in
+                { owner =
+                    { read = isSet modeBits.owner.read flags
+                    , write = isSet modeBits.owner.write flags
+                    , execute = isSet modeBits.owner.execute flags
+                    }
+                , group =
+                    { read = isSet modeBits.group.read flags
+                    , write = isSet modeBits.group.write flags
+                    , execute = isSet modeBits.group.execute flags
+                    }
+                , other =
+                    { read = isSet modeBits.other.read flags
+                    , write = isSet modeBits.other.write flags
+                    , execute = isSet modeBits.other.execute flags
+                    }
+                , setUserID = isSet modeBits.uid flags
+                , setGroupID = isSet modeBits.gid flags
+                }
+            )
 
 
 getFileDataFromHeaderInfo : BlockInfo -> MetaData
@@ -536,49 +375,17 @@ getFileDataFromHeaderInfo headerInfo =
             fileRecord
 
         _ ->
-            defaultMetadata
-
-
-stateFromBlockInfo : BlockInfo -> State
-stateFromBlockInfo blockInfo =
-    case blockInfo of
-        FileInfo _ ->
-            Processing
-
-        NullBlock ->
-            EndOfData
-
-        Error ->
-            EndOfData
+            defaultMetaData
 
 
 blockInfoOfOuput : Output -> BlockInfo
-blockInfoOfOuput ( blockInfo, output ) =
+blockInfoOfOuput ( blockInfo, _ ) =
     blockInfo
 
 
 simplifyOutput : Output -> ( MetaData, Data )
 simplifyOutput ( blockInfo, data ) =
     ( getFileDataFromHeaderInfo blockInfo, data )
-
-
-simplifyOutput2 : Output -> ( MetaData, Data )
-simplifyOutput2 ( blockInfo, data ) =
-    let
-        n =
-            fileSizeOfBlockInfo blockInfo
-    in
-    ( getFileDataFromHeaderInfo blockInfo, takeBytesData n data )
-
-
-takeBytesData : Int -> Data -> Data
-takeBytesData k data =
-    case data of
-        StringData str ->
-            StringData str
-
-        BinaryData bytes_ ->
-            BinaryData (takeBytes k bytes_)
 
 
 takeBytes : Int -> Bytes -> Bytes
@@ -601,13 +408,13 @@ takeBytes k bytes =
 
     data1 : ( MetaData, Data )
     data1 =
-        ( { defaultMetadata | filename = "one.txt" }
+        ( { defaultMetaData | filename = "one.txt" }
         , StringData "One"
         )
 
     data2 : ( MetaData, Data )
     data2 =
-        ( { defaultMetadata | filename = "two.txt" }
+        ( { defaultMetaData | filename = "two.txt" }
         , StringData "Two"
         )
 
@@ -735,6 +542,60 @@ encodePaddedBytes bytes =
 --
 
 
+andMap later first =
+    Decode.map2 (\f x -> f x) first later
+
+
+skip later first =
+    Decode.map2 (\f _ -> f) first later
+
+
+decodeMetaData : Decoder MetaData
+decodeMetaData =
+    let
+        helper name mode uid gid size mtime linkname magic uname gname prefix =
+            if String.startsWith "ustar" magic then
+                Decode.succeed
+                    { filename = name
+                    , mode = mode
+                    , ownerID = uid
+                    , groupID = gid
+                    , fileSize = size
+                    , lastModificationTime = mtime
+                    , linkIndicator = NormalFile
+                    , linkedFileName = linkname
+                    , userName = uname
+                    , groupName = gname
+                    , fileNamePrefix = prefix
+                    }
+
+            else
+                Decode.fail
+    in
+    Decode.succeed helper
+        |> andMap (cstring 100)
+        |> andMap decodeMode
+        |> andMap (Octal.decode 8)
+        |> andMap (Octal.decode 8)
+        |> andMap (Octal.decode 12)
+        |> andMap (Octal.decode 12)
+        -- center
+        |> skip (Octal.decode 8)
+        |> skip Decode.unsignedInt8
+        -- bottom
+        |> andMap (cstring 100)
+        |> andMap (cstring 6)
+        |> skip (Decode.string 2)
+        |> andMap (cstring 32)
+        |> andMap (cstring 32)
+        |> skip (Octal.decode 8)
+        |> skip (Octal.decode 8)
+        |> andMap (cstring 131)
+        |> skip (Decode.bytes 12)
+        |> skip (Decode.bytes 12)
+        |> Decode.andThen identity
+
+
 encodeMetaData : MetaData -> Encode.Encoder
 encodeMetaData metadata =
     let
@@ -742,10 +603,10 @@ encodeMetaData metadata =
         metaDataTop =
             [ Encode.string (normalizeString 100 metadata.filename)
             , encodeMode metadata.mode
-            , Encode.sequence [ octalEncoder 6 metadata.ownerID, encodedSpace, encodedNull ]
-            , Encode.sequence [ octalEncoder 6 metadata.groupID, encodedSpace, encodedNull ]
-            , Encode.sequence [ octalEncoder 11 metadata.fileSize, encodedSpace ]
-            , Encode.sequence [ octalEncoder 11 metadata.lastModificationTime, encodedSpace ]
+            , Encode.sequence [ Octal.encode 8 metadata.ownerID ]
+            , Encode.sequence [ Octal.encode 8 metadata.groupID ]
+            , Encode.sequence [ Octal.encode 12 metadata.fileSize ]
+            , Encode.sequence [ Octal.encode 12 metadata.lastModificationTime ]
             ]
                 |> Encode.sequence
                 |> Encode.encode
@@ -757,8 +618,8 @@ encodeMetaData metadata =
             , Encode.string "00"
             , Encode.string (normalizeString 32 metadata.userName)
             , Encode.string (normalizeString 32 metadata.groupName)
-            , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
-            , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
+            , Encode.sequence [ Octal.encode 8 0 ]
+            , Encode.sequence [ Octal.encode 8 0 ]
             , Encode.string (normalizeString 167 metadata.fileNamePrefix)
             ]
                 |> Encode.sequence
@@ -781,7 +642,7 @@ encodeMetaData metadata =
     in
     Encode.sequence
         [ Encode.bytes metaDataTop
-        , Encode.sequence [ checksum, encodedNull, encodedSpace ]
+        , Encode.sequence [ checksum ]
         , linkEncoder metadata.linkIndicator
         , Encode.bytes metaDataBottom
         ]
@@ -800,66 +661,36 @@ linkEncoder link =
             Encode.string "2"
 
 
-encodeFilePermissions : List FilePermission -> Encode.Encoder
-encodeFilePermissions fps =
-    fps
-        |> List.map encodeFilePermission
-        |> List.sum
-        |> (\x -> x + 48)
-        |> Encode.unsignedInt8
-
-
-encodeSystemInfo : SystemInfo -> Int
-encodeSystemInfo si =
-    case si of
-        SVTX ->
-            1
-
-        SGID ->
-            2
-
-        SUID ->
-            4
-
-
-encodeSystemInfos : List SystemInfo -> Encode.Encoder
-encodeSystemInfos sis =
-    sis
-        |> List.map encodeSystemInfo
-        |> List.sum
-        |> (\x -> x + 48)
-        |> Encode.unsignedInt8
-
-
 encodeMode : Mode -> Encode.Encoder
 encodeMode mode =
-    Encode.sequence
-        [ Encode.unsignedInt8 48
-        , Encode.unsignedInt8 48
-        , Encode.unsignedInt8 48
-        , encodeFilePermissions mode.user
-        , encodeFilePermissions mode.group
-        , encodeFilePermissions mode.other
-        , Encode.unsignedInt8 32 -- encodeSystemInfos mode.system
-        , Encode.unsignedInt8 0
-        ]
+    let
+        isSet test bit =
+            if test then
+                bit
 
+            else
+                0
 
-encodeInt8 : Int -> Encode.Encoder
-encodeInt8 n =
-    Encode.sequence
-        [ Encode.unsignedInt32 BE 0
-        , Encode.unsignedInt32 BE n
-        ]
-
-
-encodeInt12 : Int -> Encode.Encoder
-encodeInt12 n =
-    Encode.sequence
-        [ Encode.unsignedInt32 BE 0
-        , Encode.unsignedInt32 BE 0
-        , Encode.unsignedInt32 BE n
-        ]
+        bitflags : Int
+        bitflags =
+            0
+                -- user
+                |> Bitwise.or (isSet mode.owner.read modeBits.owner.read)
+                |> Bitwise.or (isSet mode.owner.write modeBits.owner.write)
+                |> Bitwise.or (isSet mode.owner.execute modeBits.owner.execute)
+                -- group
+                |> Bitwise.or (isSet mode.group.read modeBits.group.read)
+                |> Bitwise.or (isSet mode.group.write modeBits.group.write)
+                |> Bitwise.or (isSet mode.group.execute modeBits.group.execute)
+                -- other
+                |> Bitwise.or (isSet mode.other.read modeBits.other.read)
+                |> Bitwise.or (isSet mode.other.write modeBits.other.write)
+                |> Bitwise.or (isSet mode.other.execute modeBits.other.execute)
+                -- ids
+                |> Bitwise.or (isSet mode.setUserID modeBits.uid)
+                |> Bitwise.or (isSet mode.setGroupID modeBits.gid)
+    in
+    Octal.encode 8 bitflags
 
 
 
@@ -878,33 +709,24 @@ encodedNull =
     Encode.string (String.fromChar (Char.fromCode 0))
 
 
+blankMode : Mode
 blankMode =
-    { user = [ Read, Write, Execute ]
-    , group = [ Read, Write ]
-    , other = [ Read ]
-    , system = [ SGID ]
+    { owner = { read = True, write = True, execute = True }
+    , group = { read = True, write = True, execute = False }
+    , other = { read = True, write = False, execute = False }
+    , setUserID = False
+    , setGroupID = False
     }
 
 
+nullMode : Mode
 nullMode =
-    { user = []
-    , group = []
-    , other = []
-    , system = []
+    { owner = { read = False, write = False, execute = False }
+    , group = { read = False, write = False, execute = False }
+    , other = { read = False, write = False, execute = False }
+    , setUserID = False
+    , setGroupID = False
     }
-
-
-encodeFilePermission : FilePermission -> Int
-encodeFilePermission fp =
-    case fp of
-        Read ->
-            4
-
-        Write ->
-            2
-
-        Execute ->
-            1
 
 
 
@@ -991,3 +813,32 @@ dropRightLoop desiredLength str =
 smashNulls : String -> String
 smashNulls str =
     String.replace (String.fromChar (Char.fromCode 0)) "" str
+
+
+cstring : Int -> Decoder String
+cstring n =
+    Decode.map smashNulls (Decode.string n)
+
+
+{-| Map a function over 8 values at once
+-}
+map8 :
+    (b1 -> b2 -> b3 -> b4 -> b5 -> b6 -> b7 -> b8 -> result)
+    -> Decoder b1
+    -> Decoder b2
+    -> Decoder b3
+    -> Decoder b4
+    -> Decoder b5
+    -> Decoder b6
+    -> Decoder b7
+    -> Decoder b8
+    -> Decoder result
+map8 f b1 b2 b3 b4 b5 b6 b7 b8 =
+    let
+        d1 =
+            Decode.map4 (\a b c d -> f a b c d) b1 b2 b3 b4
+
+        d2 =
+            Decode.map5 (\h a b c d -> h a b c d) d1 b5 b6 b7 b8
+    in
+    d2

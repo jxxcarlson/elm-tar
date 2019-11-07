@@ -1,16 +1,16 @@
-module CheckSum exposing (checksum)
+module CheckSum exposing (checksum, sumBytes)
 
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Step(..), loop, map, succeed)
 import Bytes.Encode as Encode
-import Octal exposing (octalEncoder)
+import Octal
 
 
 checksum : Bytes -> Encode.Encoder
 checksum bytes =
     bytes
         |> sumBytes
-        |> octalEncoder 6
+        |> Octal.encode 8
 
 
 {-| Sum all the bytes in a `Bytes`.
