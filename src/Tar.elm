@@ -174,19 +174,12 @@ decodeArchive bytes =
 
 
 
-{- Decoders -}
+-- DECODERS
 
 
-{-| Example:
-
-> import Bytes.Decode exposing(decode)
-> import Tar exposing(..)
-> decode decodeFiles testArchive
-
--}
 decodeFiles : Int -> Decoder (List ( MetaData, Bytes ))
 decodeFiles n =
-    Decode.loop { state = Start, remaining = n, files = [] } fileStep
+    Decode.loop { state = Start, blocksRemaining = n, files = [] } fileStep
 
 
 type State
@@ -196,13 +189,13 @@ type State
 
 type alias Accum =
     { state : State
-    , remaining : Int
+    , blocksRemaining : Int
     , files : List ( MetaData, Bytes )
     }
 
 
 fileStep : Accum -> Decoder (Step Accum (List ( MetaData, Bytes )))
-fileStep { state, remaining, files } =
+fileStep { state, blocksRemaining, files } =
     let
         build meta blocks =
             ( meta
@@ -212,34 +205,45 @@ fileStep { state, remaining, files } =
                 |> Encode.encode
             )
     in
-    if remaining > 0 then
+    if blocksRemaining > 0 then
         Decode.bytes 512
             |> Decode.andThen
                 (\block ->
-                    case state of
-                        Start ->
-                            case Decode.decode decodeMetaData block of
-                                Nothing ->
+                    case Decode.decode decodeMetaData block of
+                        Nothing ->
+                            case state of
+                                Start ->
+                                    -- first block must be a metadata header
                                     Decode.fail
 
-                                Just { metadata, checksum } ->
-                                    if checksum.value == sumBytes block - checksum.byteSum then
-                                        Decode.succeed { state = Processing metadata [], remaining = remaining - 1, files = files }
+                                Processing meta blocks ->
+                                    Decode.succeed
+                                        { state = Processing meta (block :: blocks)
+                                        , blocksRemaining = blocksRemaining - 1
+                                        , files = files
+                                        }
 
-                                    else
-                                        Decode.fail
+                        Just { metadata, checksum } ->
+                            -- the checksum is the sum of the header bytes, where the
+                            -- checksum field is taken to be 8 spaces
+                            -- so here we calculate the byte sum of `block`, and subtract the
+                            -- sum of the checksum bytes
+                            if checksum.value == sumBytes block - checksum.byteSum then
+                                Decode.succeed
+                                    { state = Processing metadata []
+                                    , blocksRemaining = blocksRemaining - 1
+                                    , files =
+                                        case state of
+                                            Start ->
+                                                files
 
-                        Processing meta blocks ->
-                            case Decode.decode decodeMetaData block of
-                                Nothing ->
-                                    Decode.succeed { state = Processing meta (block :: blocks), remaining = remaining - 1, files = files }
+                                            Processing meta blocks ->
+                                                build meta blocks :: files
+                                    }
 
-                                Just { metadata, checksum } ->
-                                    if checksum.value == sumBytes block - checksum.byteSum then
-                                        Decode.succeed { state = Processing metadata [], remaining = remaining - 1, files = build meta blocks :: files }
-
-                                    else
-                                        Decode.fail
+                            else
+                                -- invalid checksum
+                                Decode.fail
                 )
             |> Decode.map Decode.Loop
 
