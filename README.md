@@ -1,10 +1,11 @@
 # Elm-Tar
 
 With this package you can both create and extract tar archives using
-```
-   createArchive List (Metadata, Data) -> Bytes
 
-   extractArchive : Bytes -> List ( MetaData, Data )
+```elm
+createArchive : List (Metadata, Data) -> Bytes
+
+extractArchive : Bytes -> List ( Metadata, Data )
 ```
 
 ## Types
@@ -16,10 +17,10 @@ type Data
     | BinaryData Bytes
 ```
 
-The `MetaData` type is complex and reflects the official tar specification:
+The `Metadata` type is complex and reflects the official tar specification:
 
 ```
-type alias MetaData =
+type alias Metadata =
     { filename : String
     , mode : Mode
     , ownerID : Int
@@ -38,7 +39,7 @@ The `mode` carries Unix file permissions, e.g., 644.  The fileNamePrefix
 can be thought of as the name of the folder/directory in which the files
 to be processed live.
 
-Because filling out this record is something a pain, a `defaultMetadata : MetaData`
+Because filling out this record is something a pain, a `defaultMetadata : Metadata`
 value is provided.  It can be modified as needed.
 
 ## Example

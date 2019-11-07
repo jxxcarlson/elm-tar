@@ -17,8 +17,8 @@ tearsOfJoy =
     '😂'
 
 
-defaultMetaData =
-    Tar.defaultMetaData
+defaultMetadata =
+    Tar.defaultMetadata
 
 
 process input =
@@ -51,7 +51,7 @@ suite =
                                     Tar.StringData value
 
                                 meta =
-                                    { defaultMetaData | fileSize = Encode.getStringWidth value }
+                                    { defaultMetadata | fileSize = Encode.getStringWidth value }
 
                                 input =
                                     [ ( meta, data ) ]
@@ -118,11 +118,11 @@ suite =
                                    |> Expect.equal expected
                in
                [ hashTest "empty" [] "5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
-               , hashTest "string" [ ( Tar.defaultMetaData, Tar.StringData "foo" ) ] "f85654c84b6e9ca6989fc42fd5814063bbdb27ce116e2baad34f210f42a6145d"
-               , hashTest "bytes" [ ( Tar.defaultMetaData, Tar.BinaryData (Encode.encode (Encode.string "foo")) ) ] "f85654c84b6e9ca6989fc42fd5814063bbdb27ce116e2baad34f210f42a6145d"
-               , hashTest "file name too long 1" [ ( { defaultMetaData | filename = String.repeat 101 "a" }, Tar.StringData "foo" ) ] "e1fd20591cce478c384df041219d12d2fe8634e2aef1bfd42c0bdd15a532da83"
-               , hashTest "file name too long 2" [ ( { defaultMetaData | filename = String.repeat 102 "a" }, Tar.StringData "foo" ) ] "e1fd20591cce478c384df041219d12d2fe8634e2aef1bfd42c0bdd15a532da83"
-               , hashTest "file name too long 3" [ ( { defaultMetaData | filename = String.repeat 102 "a" }, Tar.BinaryData (Encode.encode (Encode.string "foo")) ) ] "e1fd20591cce478c384df041219d12d2fe8634e2aef1bfd42c0bdd15a532da83"
+               , hashTest "string" [ ( Tar.defaultMetadata, Tar.StringData "foo" ) ] "f85654c84b6e9ca6989fc42fd5814063bbdb27ce116e2baad34f210f42a6145d"
+               , hashTest "bytes" [ ( Tar.defaultMetadata, Tar.BinaryData (Encode.encode (Encode.string "foo")) ) ] "f85654c84b6e9ca6989fc42fd5814063bbdb27ce116e2baad34f210f42a6145d"
+               , hashTest "file name too long 1" [ ( { defaultMetadata | filename = String.repeat 101 "a" }, Tar.StringData "foo" ) ] "e1fd20591cce478c384df041219d12d2fe8634e2aef1bfd42c0bdd15a532da83"
+               , hashTest "file name too long 2" [ ( { defaultMetadata | filename = String.repeat 102 "a" }, Tar.StringData "foo" ) ] "e1fd20591cce478c384df041219d12d2fe8634e2aef1bfd42c0bdd15a532da83"
+               , hashTest "file name too long 3" [ ( { defaultMetadata | filename = String.repeat 102 "a" }, Tar.BinaryData (Encode.encode (Encode.string "foo")) ) ] "e1fd20591cce478c384df041219d12d2fe8634e2aef1bfd42c0bdd15a532da83"
                ]
         -}
         , describe "octal" <|

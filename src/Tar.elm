@@ -1,6 +1,8 @@
 module Tar exposing
     ( createArchive, extractArchive
-    , Data(..), MetaData, defaultMetaData
+    , Data(..)
+    , Metadata, defaultMetadata
+    , Mode, defaultMode
     , encodeFiles, encodeTextFile, encodeTextFiles
     )
 
@@ -8,7 +10,13 @@ module Tar exposing
 
 @docs createArchive, extractArchive
 
-@docs Data, MetaData, defaultMetaData
+@docs Data
+
+
+## Metadata
+
+@docs Metadata, defaultMetadata
+@docs Mode, defaultMode
 
 
 ## Encoders
@@ -49,12 +57,12 @@ type Data
     | BinaryData Bytes
 
 
-{-| A MetaData value contains the information, e.g.,
+{-| A Metadata value contains the information, e.g.,
 file name and file length, needed to construct the header
-for a file in the tar archive. You may use `defaultMetaData` as
+for a file in the tar archive. You may use `defaultMetadata` as
 a starting point, modifying only what is needed.
 -}
-type alias MetaData =
+type alias Metadata =
     { filename : String
     , mode : Mode
     , ownerID : Int
@@ -71,10 +79,10 @@ type alias MetaData =
 
 {-| Defined as
 
-    defaultMetaData : MetaData
-    defaultMetaData =
+    defaultMetadata : Metadata
+    defaultMetadata =
         { filename = "test.txt"
-        , mode = blankMode
+        , mode = defaultMode
         , ownerID = 501
         , groupID = 123
         , fileSize = 20
@@ -88,14 +96,14 @@ type alias MetaData =
 
 Example usage:
 
-    myMetaData =
-        { defaultMetaData | filename = "Test.txt" }
+    myMetadata =
+        { defaultMetadata | filename = "Test.txt" }
 
 -}
-defaultMetaData : MetaData
-defaultMetaData =
+defaultMetadata : Metadata
+defaultMetadata =
     { filename = "test.txt"
-    , mode = blankMode
+    , mode = defaultMode
     , ownerID = 501
     , groupID = 123
     , fileSize = 20
@@ -108,6 +116,7 @@ defaultMetaData =
     }
 
 
+{-| -}
 type alias Mode =
     { owner : FilePermission
     , group : FilePermission
@@ -121,6 +130,38 @@ type alias FilePermission =
     { read : Bool
     , write : Bool
     , execute : Bool
+    }
+
+
+{-| Default mode
+
+    defaultMode : Mode
+    defaultMode =
+        { owner = { read = True, write = True, execute = True }
+        , group = { read = True, write = True, execute = False }
+        , other = { read = True, write = False, execute = False }
+        , setUserID = False
+        , setGroupID = False
+        }
+
+-}
+defaultMode : Mode
+defaultMode =
+    { owner = { read = True, write = True, execute = True }
+    , group = { read = True, write = True, execute = False }
+    , other = { read = True, write = False, execute = False }
+    , setUserID = False
+    , setGroupID = False
+    }
+
+
+nullMode : Mode
+nullMode =
+    { owner = { read = False, write = False, execute = False }
+    , group = { read = False, write = False, execute = False }
+    , other = { read = False, write = False, execute = False }
+    , setUserID = False
+    , setGroupID = False
     }
 
 
@@ -138,12 +179,12 @@ type Link
 
 {-| Decode an archive into its constituent files.
 -}
-extractArchive : Bytes -> List ( MetaData, Data )
+extractArchive : Bytes -> List ( Metadata, Data )
 extractArchive bytes =
     decodeArchive bytes
 
 
-decodeTextAsStringHelp : ( MetaData, Bytes ) -> ( MetaData, Data )
+decodeTextAsStringHelp : ( Metadata, Bytes ) -> ( Metadata, Data )
 decodeTextAsStringHelp ( meta, bytes ) =
     case getFileExtension meta.filename of
         Nothing ->
@@ -163,7 +204,7 @@ decodeTextAsStringHelp ( meta, bytes ) =
                 ( meta, BinaryData (takeBytes meta.fileSize bytes) )
 
 
-decodeArchive : Bytes -> List ( MetaData, Data )
+decodeArchive : Bytes -> List ( Metadata, Data )
 decodeArchive bytes =
     case Decode.decode (decodeFiles (Bytes.width bytes // 512)) bytes of
         Just v ->
@@ -177,24 +218,24 @@ decodeArchive bytes =
 -- DECODERS
 
 
-decodeFiles : Int -> Decoder (List ( MetaData, Bytes ))
+decodeFiles : Int -> Decoder (List ( Metadata, Bytes ))
 decodeFiles n =
     Decode.loop { state = Start, blocksRemaining = n, files = [] } fileStep
 
 
 type State
     = Start
-    | Processing MetaData (List Bytes)
+    | Processing Metadata (List Bytes)
 
 
 type alias Accum =
     { state : State
     , blocksRemaining : Int
-    , files : List ( MetaData, Bytes )
+    , files : List ( Metadata, Bytes )
     }
 
 
-fileStep : Accum -> Decoder (Step Accum (List ( MetaData, Bytes )))
+fileStep : Accum -> Decoder (Step Accum (List ( Metadata, Bytes )))
 fileStep { state, blocksRemaining, files } =
     let
         build meta blocks =
@@ -209,7 +250,7 @@ fileStep { state, blocksRemaining, files } =
         Decode.bytes 512
             |> Decode.andThen
                 (\block ->
-                    case Decode.decode decodeMetaData block of
+                    case Decode.decode decodeMetadata block of
                         Nothing ->
                             case state of
                                 Start ->
@@ -367,22 +408,22 @@ decodeMode =
 
 {-| Example:
 
-    data1 : ( MetaData, Data )
+    data1 : ( Metadata, Data )
     data1 =
-        ( { defaultMetaData | filename = "one.txt" }
+        ( { defaultMetadata | filename = "one.txt" }
         , StringData "One"
         )
 
-    data2 : ( MetaData, Data )
+    data2 : ( Metadata, Data )
     data2 =
-        ( { defaultMetaData | filename = "two.txt" }
+        ( { defaultMetadata | filename = "two.txt" }
         , StringData "Two"
         )
 
     createArchive [data1, data2]
 
 -}
-createArchive : List ( MetaData, Data ) -> Bytes
+createArchive : List ( Metadata, Data ) -> Bytes
 createArchive dataList =
     encodeFiles dataList |> encode
 
@@ -402,19 +443,19 @@ endOfFileMarker =
 
     import Bytes
     import Bytes.Encode as Encode
-    import Tar exposing (defaultMetaData)
+    import Tar exposing (defaultMetadata)
 
-    metaData1 : Tar.MetaData
+    metaData1 : Tar.Metadata
     metaData1 =
-        { defaultMetaData | filename = "a.txt" }
+        { defaultMetadata | filename = "a.txt" }
 
     content1 : String
     content1 =
         "One two three\n"
 
-    metaData2 : Tar.MetaData
+    metaData2 : Tar.Metadata
     metaData2
-        { defaultMetaData | filename = "c.binary" }
+        { defaultMetadata | filename = "c.binary" }
 
     content2 : Bytes.Bytes
     content2 =
@@ -431,7 +472,7 @@ endOfFileMarker =
         |> Bytes.Encode.encode
 
 -}
-encodeFiles : List ( MetaData, Data ) -> Encode.Encoder
+encodeFiles : List ( Metadata, Data ) -> Encode.Encoder
 encodeFiles fileList =
     let
         folder ( metadata, string ) accum =
@@ -442,13 +483,13 @@ encodeFiles fileList =
 
 
 {-| -}
-encodeTextFile : MetaData -> String -> Encode.Encoder
+encodeTextFile : Metadata -> String -> Encode.Encoder
 encodeTextFile metaData contents =
     encodeBinaryFile metaData (Encode.encode (Encode.string contents))
 
 
 {-| -}
-encodeTextFiles : List ( MetaData, String ) -> Encode.Encoder
+encodeTextFiles : List ( Metadata, String ) -> Encode.Encoder
 encodeTextFiles fileList =
     let
         folder ( metadata, string ) accum =
@@ -458,7 +499,7 @@ encodeTextFiles fileList =
         |> Encode.sequence
 
 
-encodeFile : MetaData -> Data -> Encode.Encoder
+encodeFile : Metadata -> Data -> Encode.Encoder
 encodeFile metaData data =
     case data of
         StringData contents ->
@@ -468,7 +509,7 @@ encodeFile metaData data =
             encodeBinaryFile metaData bytes
 
 
-encodeBinaryFile : MetaData -> Bytes -> Encode.Encoder
+encodeBinaryFile : Metadata -> Bytes -> Encode.Encoder
 encodeBinaryFile metaData bytes =
     let
         width =
@@ -476,11 +517,11 @@ encodeBinaryFile metaData bytes =
     in
     case width of
         0 ->
-            encodeMetaData { metaData | fileSize = width }
+            encodeMetadata { metaData | fileSize = width }
 
         _ ->
             Encode.sequence
-                [ encodeMetaData { metaData | fileSize = width }
+                [ encodeMetadata { metaData | fileSize = width }
                 , encodePaddedBytes bytes
                 ]
 
@@ -520,8 +561,8 @@ skip later first =
     Decode.map2 (\f _ -> f) first later
 
 
-decodeMetaData : Decoder { metadata : MetaData, checksum : Checksum }
-decodeMetaData =
+decodeMetadata : Decoder { metadata : Metadata, checksum : Checksum }
+decodeMetadata =
     let
         helper name mode uid gid size mtime checksum linkname magic uname gname prefix =
             if String.startsWith "ustar" magic then
@@ -596,8 +637,8 @@ Therefore we must first encode those parts (the checksum field is 8 spaces in th
 sum its bytes, then re-encode the full header with the checksum.
 
 -}
-encodeMetaData : MetaData -> Encode.Encoder
-encodeMetaData metadata =
+encodeMetadata : Metadata -> Encode.Encoder
+encodeMetadata metadata =
     let
         metaDataTop : Bytes
         metaDataTop =
@@ -695,29 +736,6 @@ encodeMode mode =
 
 
 -- HELPERS FOR ENCODING FILES
-
-
-blankMode : Mode
-blankMode =
-    { owner = { read = True, write = True, execute = True }
-    , group = { read = True, write = True, execute = False }
-    , other = { read = True, write = False, execute = False }
-    , setUserID = False
-    , setGroupID = False
-    }
-
-
-nullMode : Mode
-nullMode =
-    { owner = { read = False, write = False, execute = False }
-    , group = { read = False, write = False, execute = False }
-    , other = { read = False, write = False, execute = False }
-    , setUserID = False
-    , setGroupID = False
-    }
-
-
-
 --
 -- HELPERS
 --
