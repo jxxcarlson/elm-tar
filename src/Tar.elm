@@ -24,7 +24,6 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Decoder, Step(..), decode)
 import Bytes.Encode as Encode exposing (encode)
 import Char
-import CheckSum
 import Octal
 import Set exposing (Set)
 import String.Graphemes
@@ -592,16 +591,16 @@ encodeMetaData metadata =
             , Encode.bytes metaDataBottom
             ]
 
-        checksum : Encode.Encoder
+        checksum : Int
         checksum =
             preliminary
                 |> Encode.sequence
                 |> Encode.encode
-                |> CheckSum.checksum
+                |> sumBytes
     in
     Encode.sequence
         [ Encode.bytes metaDataTop
-        , checksum
+        , Octal.encode 8 checksum
         , Encode.bytes metaDataBottom
         ]
 
@@ -745,3 +744,27 @@ takeBytes k bytes =
 
         Nothing ->
             bytes
+
+
+{-| Sum all the bytes in a `Bytes`.
+-}
+sumBytes : Bytes -> Int
+sumBytes bytes =
+    let
+        decoder =
+            Decode.loop { remaining = Bytes.width bytes, accum = 16 } sumBytesHelp
+    in
+    case Decode.decode decoder bytes of
+        Just v ->
+            v
+
+        Nothing ->
+            0
+
+
+sumBytesHelp { remaining, accum } =
+    if remaining > 0 then
+        Decode.map (\new -> Decode.Loop { remaining = remaining - 1, accum = new + accum }) Decode.unsignedInt8
+
+    else
+        Decode.succeed (Decode.Done accum)
