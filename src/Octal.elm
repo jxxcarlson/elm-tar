@@ -1,5 +1,13 @@
 module Octal exposing (binaryDigits, decode, digits, encode, integerValueofOctalList)
 
+{-| Octal numbers
+
+Tar is weird in that it uses ascii-encoded octal (base 8) numbers.
+
+the decimal number 48 is the position of the '0' character in the ascii table.
+
+-}
+
 import Bytes
 import Bytes.Decode as Decode exposing (Decoder)
 import Bytes.Encode as Encode exposing (Encoder)

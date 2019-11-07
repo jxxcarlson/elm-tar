@@ -222,16 +222,24 @@ fileStep { state, remaining, files } =
                                 Nothing ->
                                     Decode.fail
 
-                                Just meta ->
-                                    Decode.succeed { state = Processing meta [], remaining = remaining - 1, files = files }
+                                Just { metadata, checksum } ->
+                                    if checksum.value == sumBytes block - checksum.byteSum then
+                                        Decode.succeed { state = Processing metadata [], remaining = remaining - 1, files = files }
+
+                                    else
+                                        Decode.fail
 
                         Processing meta blocks ->
                             case Decode.decode decodeMetaData block of
                                 Nothing ->
                                     Decode.succeed { state = Processing meta (block :: blocks), remaining = remaining - 1, files = files }
 
-                                Just newMeta ->
-                                    Decode.succeed { state = Processing newMeta [], remaining = remaining - 1, files = build meta blocks :: files }
+                                Just { metadata, checksum } ->
+                                    if checksum.value == sumBytes block - checksum.byteSum then
+                                        Decode.succeed { state = Processing metadata [], remaining = remaining - 1, files = build meta blocks :: files }
+
+                                    else
+                                        Decode.fail
                 )
             |> Decode.map Decode.Loop
 
@@ -508,23 +516,26 @@ skip later first =
     Decode.map2 (\f _ -> f) first later
 
 
-decodeMetaData : Decoder MetaData
+decodeMetaData : Decoder { metadata : MetaData, checksum : Checksum }
 decodeMetaData =
     let
-        helper name mode uid gid size mtime linkname magic uname gname prefix =
+        helper name mode uid gid size mtime checksum linkname magic uname gname prefix =
             if String.startsWith "ustar" magic then
                 Decode.succeed
-                    { filename = name
-                    , mode = mode
-                    , ownerID = uid
-                    , groupID = gid
-                    , fileSize = size
-                    , lastModificationTime = mtime
-                    , linkIndicator = NormalFile
-                    , linkedFileName = linkname
-                    , userName = uname
-                    , groupName = gname
-                    , fileNamePrefix = prefix
+                    { metadata =
+                        { filename = name
+                        , mode = mode
+                        , ownerID = uid
+                        , groupID = gid
+                        , fileSize = size
+                        , lastModificationTime = mtime
+                        , linkIndicator = NormalFile
+                        , linkedFileName = linkname
+                        , userName = uname
+                        , groupName = gname
+                        , fileNamePrefix = prefix
+                        }
+                    , checksum = checksum
                     }
 
             else
@@ -538,9 +549,9 @@ decodeMetaData =
         |> andMap (Octal.decode 12)
         |> andMap (Octal.decode 12)
         -- center
-        |> skip (Octal.decode 8)
-        |> skip Decode.unsignedInt8
+        |> andMap decodeChecksum
         -- bottom
+        |> skip Decode.unsignedInt8
         |> andMap (cstring 100)
         |> andMap (cstring 6)
         |> skip (Decode.bytes 2)
@@ -554,6 +565,33 @@ decodeMetaData =
         |> Decode.andThen identity
 
 
+type alias Checksum =
+    { value : Int
+    , byteSum : Int
+    }
+
+
+decodeChecksum : Decoder Checksum
+decodeChecksum =
+    Decode.bytes 8
+        |> Decode.andThen
+            (\bytes ->
+                case Decode.decode (Octal.decode 7) bytes of
+                    Just value ->
+                        Decode.succeed { value = value, byteSum = sumBytes bytes - 8 * Char.toCode ' ' }
+
+                    Nothing ->
+                        Decode.fail
+            )
+
+
+{-| Encode metadata
+
+The metadata contains a checksum, based on the other fields of the metadata header.
+Therefore we must first encode those parts (the checksum field is 8 spaces in this case),
+sum its bytes, then re-encode the full header with the checksum.
+
+-}
 encodeMetaData : MetaData -> Encode.Encoder
 encodeMetaData metadata =
     let
@@ -600,7 +638,8 @@ encodeMetaData metadata =
     in
     Encode.sequence
         [ Encode.bytes metaDataTop
-        , Octal.encode 8 checksum
+        , Octal.encode 7 checksum
+        , Encode.string " "
         , Encode.bytes metaDataBottom
         ]
 
@@ -752,7 +791,7 @@ sumBytes : Bytes -> Int
 sumBytes bytes =
     let
         decoder =
-            Decode.loop { remaining = Bytes.width bytes, accum = 16 } sumBytesHelp
+            Decode.loop { remaining = Bytes.width bytes, accum = 0 } sumBytesHelp
     in
     case Decode.decode decoder bytes of
         Just v ->
