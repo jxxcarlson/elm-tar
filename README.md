@@ -11,7 +11,8 @@ extractArchive : Bytes -> List ( Metadata, Data )
 ## Types
 
 The `Data` type discriminates between string and binary  data:
-```
+
+```elm
 type Data
     = StringData String
     | BinaryData Bytes
@@ -19,7 +20,7 @@ type Data
 
 The `Metadata` type is complex and reflects the official tar specification:
 
-```
+```elm
 type alias Metadata =
     { filename : String
     , mode : Mode
@@ -32,7 +33,6 @@ type alias Metadata =
     , userName : String
     , groupName : String
     , fileNamePrefix : String
-    , typeFlag : Ascii
     }
 ```
 The `mode` carries Unix file permissions, e.g., 644.  The fileNamePrefix

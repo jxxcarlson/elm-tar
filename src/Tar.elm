@@ -57,10 +57,22 @@ type Data
     | BinaryData Bytes
 
 
-{-| A Metadata value contains the information, e.g.,
-file name and file length, needed to construct the header
-for a file in the tar archive. You may use `defaultMetadata` as
-a starting point, modifying only what is needed.
+{-| Information used in the tar header.
+You may use `defaultMetadata` as a starting point, modifying only what is needed.
+
+Fields:
+
+  - **filename**: Name of the file
+  - **mode**: Unix file permissions, e.g. 644
+  - **ownerID**: owner identifier
+  - **groupID**: group identifier
+  - **fileSize**: size of the encoded file in bytes
+  - **lastModificationTime**: last modification time as a posix value
+  - **linkIndicator**: unused
+  - **userName**: user name
+  - **groupName**: group name
+  - **fileNamePrefix**: can be thought of as the name of the folder/directory in which the files to be processed live
+
 -}
 type alias Metadata =
     { filename : String
