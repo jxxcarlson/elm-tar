@@ -31,6 +31,9 @@ process input =
                 _ ->
                     Debug.todo "not a just"
 
+        [ ( meta, Tar.StringData data ) ] ->
+            input
+
         _ ->
             Debug.todo ("invalid list: " ++ Debug.toString input)
 
@@ -48,7 +51,7 @@ suite =
                                     Tar.StringData value
 
                                 meta =
-                                    { defaultMetaData | fileSize = Debug.log "width" <| Encode.getStringWidth value }
+                                    { defaultMetaData | fileSize = Encode.getStringWidth value }
 
                                 input =
                                     [ ( meta, data ) ]
@@ -69,14 +72,9 @@ suite =
                                         |> Tar.extractArchive
                             in
                             case result of
-                                ( newMeta, Tar.BinaryData resultData ) :: _ ->
-                                    case Decode.decode (Decode.string newMeta.fileSize) resultData of
-                                        Just newValue ->
-                                            ( newMeta, newValue )
-                                                |> Expect.equal ( meta, value )
-
-                                        Nothing ->
-                                            Expect.fail "string decoding failed"
+                                ( newMeta, Tar.StringData newValue ) :: _ ->
+                                    ( newMeta, newValue )
+                                        |> Expect.equal ( meta, value )
 
                                 _ ->
                                     Expect.fail ("invalid: " ++ Debug.toString result)

@@ -26,8 +26,8 @@ import Bytes.Encode as Encode exposing (encode)
 import Char
 import CheckSum
 import Octal
+import Set exposing (Set)
 import String.Graphemes
-import Utility
 
 
 
@@ -132,51 +132,6 @@ type Link
 
 
 
-{- For extracting a tar archive -}
-
-
-type BlockInfo
-    = FileInfo ExtendedMetaData
-    | NullBlock
-    | Error
-
-
-type ExtendedMetaData
-    = ExtendedMetaData MetaData (Maybe String)
-
-
-fileSize : ExtendedMetaData -> Int
-fileSize (ExtendedMetaData metaData _) =
-    metaData.fileSize
-
-
-fileSizeOfBlockInfo : BlockInfo -> Int
-fileSizeOfBlockInfo blockInfo =
-    case blockInfo of
-        FileInfo extendedMetaData ->
-            fileSize extendedMetaData
-
-        NullBlock ->
-            0
-
-        Error ->
-            0
-
-
-fileExtension : ExtendedMetaData -> Maybe String
-fileExtension (ExtendedMetaData metaData ext) =
-    ext
-
-
-type alias Output =
-    ( BlockInfo, Data )
-
-
-type alias OutputList =
-    List Output
-
-
-
 --
 -- EXTRACT ARCHIVE
 --
@@ -189,11 +144,31 @@ extractArchive bytes =
     decodeArchive bytes
 
 
+decodeTextAsStringHelp : ( MetaData, Bytes ) -> ( MetaData, Data )
+decodeTextAsStringHelp ( meta, bytes ) =
+    case getFileExtension meta.filename of
+        Nothing ->
+            -- cannot determine filetype; default to binary
+            ( meta, BinaryData (takeBytes meta.fileSize bytes) )
+
+        Just extension ->
+            if Set.member extension textFileExtensions then
+                case Decode.decode (Decode.string meta.fileSize) bytes of
+                    Just str ->
+                        ( meta, StringData str )
+
+                    Nothing ->
+                        ( meta, StringData "" )
+
+            else
+                ( meta, BinaryData (takeBytes meta.fileSize bytes) )
+
+
 decodeArchive : Bytes -> List ( MetaData, Data )
 decodeArchive bytes =
     case Decode.decode (decodeFiles (Bytes.width bytes // 512)) bytes of
         Just v ->
-            List.map (Tuple.mapSecond BinaryData) v
+            List.map decodeTextAsStringHelp v
 
         Nothing ->
             []
@@ -220,6 +195,14 @@ type State
     | Processing MetaData (List Bytes)
 
 
+type alias Accum =
+    { state : State
+    , remaining : Int
+    , files : List ( MetaData, Bytes )
+    }
+
+
+fileStep : Accum -> Decoder (Step Accum (List ( MetaData, Bytes )))
 fileStep { state, remaining, files } =
     let
         build meta blocks =
@@ -228,7 +211,6 @@ fileStep { state, remaining, files } =
                 |> List.map Encode.bytes
                 |> Encode.sequence
                 |> Encode.encode
-                |> takeBytes meta.fileSize
             )
     in
     if remaining > 0 then
@@ -263,9 +245,9 @@ fileStep { state, remaining, files } =
                 Decode.succeed (Decode.Done (List.reverse (build meta blocks :: files)))
 
 
-textFileExtensions : List String
+textFileExtensions : Set String
 textFileExtensions =
-    [ "text", "txt", "tex", "csv", "html" ]
+    Set.fromList [ "text", "txt", "tex", "csv", "html" ]
 
 
 getFileExtension : String -> Maybe String
@@ -281,16 +263,6 @@ getFileExtension str =
 
     else
         Nothing
-
-
-getFileHeaderInfo : Bytes -> ExtendedMetaData
-getFileHeaderInfo bytes =
-    case Decode.decode decodeMetaData bytes of
-        Nothing ->
-            ExtendedMetaData defaultMetaData Nothing
-
-        Just ({ filename } as metadata) ->
-            ExtendedMetaData metadata (getFileExtension filename)
 
 
 
@@ -312,6 +284,14 @@ round512 n =
         n + (512 - residue)
 
 
+modeBits :
+    { gid : Int
+    , group : { execute : Int, read : Int, write : Int }
+    , other : { execute : Int, read : Int, write : Int }
+    , owner : { execute : Int, read : Int, write : Int }
+    , reserved : Int
+    , uid : Int
+    }
 modeBits =
     { uid = 2048
     , gid = 1024
@@ -366,36 +346,6 @@ decodeMode =
                 , setGroupID = isSet modeBits.gid flags
                 }
             )
-
-
-getFileDataFromHeaderInfo : BlockInfo -> MetaData
-getFileDataFromHeaderInfo headerInfo =
-    case headerInfo of
-        FileInfo (ExtendedMetaData fileRecord _) ->
-            fileRecord
-
-        _ ->
-            defaultMetaData
-
-
-blockInfoOfOuput : Output -> BlockInfo
-blockInfoOfOuput ( blockInfo, _ ) =
-    blockInfo
-
-
-simplifyOutput : Output -> ( MetaData, Data )
-simplifyOutput ( blockInfo, data ) =
-    ( getFileDataFromHeaderInfo blockInfo, data )
-
-
-takeBytes : Int -> Bytes -> Bytes
-takeBytes k bytes =
-    case Decode.decode (Decode.bytes k) bytes of
-        Just v ->
-            v
-
-        Nothing ->
-            bytes
 
 
 
@@ -532,8 +482,15 @@ encodePaddedBytes bytes =
     in
     Encode.sequence
         [ Encode.bytes bytes
-        , Encode.sequence <| List.repeat paddingWidth (Encode.unsignedInt8 0)
+        , Encode.bytes (takeBytes paddingWidth nullBlock)
         ]
+
+
+nullBlock : Bytes
+nullBlock =
+    List.repeat (512 // 4) (Encode.unsignedInt32 Bytes.BE 0)
+        |> Encode.sequence
+        |> Encode.encode
 
 
 
@@ -542,10 +499,12 @@ encodePaddedBytes bytes =
 --
 
 
+andMap : Decoder a -> Decoder (a -> b) -> Decoder b
 andMap later first =
     Decode.map2 (\f x -> f x) first later
 
 
+skip : Decoder x -> Decoder a -> Decoder a
 skip later first =
     Decode.map2 (\f _ -> f) first later
 
@@ -585,7 +544,7 @@ decodeMetaData =
         -- bottom
         |> andMap (cstring 100)
         |> andMap (cstring 6)
-        |> skip (Decode.string 2)
+        |> skip (Decode.bytes 2)
         |> andMap (cstring 32)
         |> andMap (cstring 32)
         |> skip (Octal.decode 8)
@@ -613,8 +572,9 @@ encodeMetaData metadata =
 
         metaDataBottom : Bytes
         metaDataBottom =
-            [ Encode.string (normalizeString 100 metadata.linkedFileName)
-            , Encode.sequence [ Encode.string "ustar", encodedNull ]
+            [ linkEncoder metadata.linkIndicator
+            , Encode.string (normalizeString 100 metadata.linkedFileName)
+            , Encode.string (normalizeString 6 "ustar")
             , Encode.string "00"
             , Encode.string (normalizeString 32 metadata.userName)
             , Encode.string (normalizeString 32 metadata.groupName)
@@ -629,7 +589,6 @@ encodeMetaData metadata =
         preliminary =
             [ Encode.bytes metaDataTop
             , Encode.string (String.repeat 8 " ")
-            , encodedSpace
             , Encode.bytes metaDataBottom
             ]
 
@@ -642,8 +601,7 @@ encodeMetaData metadata =
     in
     Encode.sequence
         [ Encode.bytes metaDataTop
-        , Encode.sequence [ checksum ]
-        , linkEncoder metadata.linkIndicator
+        , checksum
         , Encode.bytes metaDataBottom
         ]
 
@@ -694,19 +652,7 @@ encodeMode mode =
 
 
 
-{- HELPERS FOR ENCODEING FILES -}
-
-
-encodedSpace =
-    Encode.string " "
-
-
-encodedZero =
-    Encode.string "0"
-
-
-encodedNull =
-    Encode.string (String.fromChar (Char.fromCode 0))
+-- HELPERS FOR ENCODING FILES
 
 
 blankMode : Mode
@@ -733,35 +679,6 @@ nullMode =
 --
 -- HELPERS
 --
-
-
-stripLeadingString : String -> String -> String
-stripLeadingString lead str =
-    str
-        |> String.split ""
-        |> stripLeadingElement lead
-        |> String.join ""
-
-
-stripLeadingElement : a -> List a -> List a
-stripLeadingElement lead list =
-    case list of
-        [] ->
-            []
-
-        [ x ] ->
-            if lead == x then
-                []
-
-            else
-                [ x ]
-
-        x :: xs ->
-            if lead == x then
-                stripLeadingElement lead xs
-
-            else
-                x :: xs
 
 
 {-| Encode a c-style null-delimited string of a specific length.
@@ -820,25 +737,11 @@ cstring n =
     Decode.map smashNulls (Decode.string n)
 
 
-{-| Map a function over 8 values at once
--}
-map8 :
-    (b1 -> b2 -> b3 -> b4 -> b5 -> b6 -> b7 -> b8 -> result)
-    -> Decoder b1
-    -> Decoder b2
-    -> Decoder b3
-    -> Decoder b4
-    -> Decoder b5
-    -> Decoder b6
-    -> Decoder b7
-    -> Decoder b8
-    -> Decoder result
-map8 f b1 b2 b3 b4 b5 b6 b7 b8 =
-    let
-        d1 =
-            Decode.map4 (\a b c d -> f a b c d) b1 b2 b3 b4
+takeBytes : Int -> Bytes -> Bytes
+takeBytes k bytes =
+    case Decode.decode (Decode.bytes k) bytes of
+        Just v ->
+            v
 
-        d2 =
-            Decode.map5 (\h a b c d -> h a b c d) d1 b5 b6 b7 b8
-    in
-    d2
+        Nothing ->
+            bytes
