@@ -263,20 +263,7 @@ fileStep { state, blocksRemaining, files } =
             |> Decode.andThen
                 (\block ->
                     case Decode.decode decodeMetadata block of
-                        Nothing ->
-                            case state of
-                                Start ->
-                                    -- first block must be a metadata header
-                                    Decode.fail
-
-                                Processing meta blocks ->
-                                    Decode.succeed
-                                        { state = Processing meta (block :: blocks)
-                                        , blocksRemaining = blocksRemaining - 1
-                                        , files = files
-                                        }
-
-                        Just { metadata, checksum } ->
+                        Just (Just { metadata, checksum }) ->
                             -- the checksum is the sum of the header bytes, where the
                             -- checksum field is taken to be 8 spaces
                             -- so here we calculate the byte sum of `block`, and subtract the
@@ -297,6 +284,19 @@ fileStep { state, blocksRemaining, files } =
                             else
                                 -- invalid checksum
                                 Decode.fail
+
+                        _ ->
+                            case state of
+                                Start ->
+                                    -- first block must be a metadata header
+                                    Decode.fail
+
+                                Processing meta blocks ->
+                                    Decode.succeed
+                                        { state = Processing meta (block :: blocks)
+                                        , blocksRemaining = blocksRemaining - 1
+                                        , files = files
+                                        }
                 )
             |> Decode.map Decode.Loop
 
@@ -573,30 +573,40 @@ skip later first =
     Decode.map2 (\f _ -> f) first later
 
 
-decodeMetadata : Decoder { metadata : Metadata, checksum : Checksum }
+{-| Performance note
+
+Why not use `Decode.fail` instead of decoding a maybe? It is very slow!
+failing uses javascripts exception mechanism which is very slow. Perhaps because
+it needs to store a lot of information (stack traces) etc?
+
+Anyhow this is almost 2X faster
+
+-}
+decodeMetadata : Decoder (Maybe { metadata : Metadata, checksum : Checksum })
 decodeMetadata =
     let
         helper name mode uid gid size mtime checksum linkname magic uname gname prefix =
             if String.startsWith "ustar" magic then
-                Decode.succeed
-                    { metadata =
-                        { filename = name
-                        , mode = mode
-                        , ownerID = uid
-                        , groupID = gid
-                        , fileSize = size
-                        , lastModificationTime = mtime
-                        , linkIndicator = NormalFile
-                        , linkedFileName = linkname
-                        , userName = uname
-                        , groupName = gname
-                        , fileNamePrefix = prefix
+                Decode.succeed <|
+                    Just
+                        { metadata =
+                            { filename = name
+                            , mode = mode
+                            , ownerID = uid
+                            , groupID = gid
+                            , fileSize = size
+                            , lastModificationTime = mtime
+                            , linkIndicator = NormalFile
+                            , linkedFileName = linkname
+                            , userName = uname
+                            , groupName = gname
+                            , fileNamePrefix = prefix
+                            }
+                        , checksum = checksum
                         }
-                    , checksum = checksum
-                    }
 
             else
-                Decode.fail
+                Decode.succeed Nothing
     in
     Decode.succeed helper
         |> andMap (cstring 100)
@@ -836,8 +846,49 @@ sumBytes bytes =
 
 
 sumBytesHelp { remaining, accum } =
-    if remaining > 0 then
+    if remaining >= 8 then
+        Decode.map2 (\word1 word2 -> Decode.Loop { remaining = remaining - 8, accum = sum8Bytes word1 word2 + accum })
+            (Decode.unsignedInt32 BE)
+            (Decode.unsignedInt32 BE)
+
+    else if remaining > 0 then
         Decode.map (\new -> Decode.Loop { remaining = remaining - 1, accum = new + accum }) Decode.unsignedInt8
 
     else
         Decode.succeed (Decode.Done accum)
+
+
+sum8Bytes word1 word2 =
+    let
+        byte1 =
+            Bitwise.shiftRightZfBy 24 word1 |> Bitwise.and 0xFF
+
+        byte2 =
+            Bitwise.shiftRightZfBy 16 word1 |> Bitwise.and 0xFF
+
+        byte3 =
+            Bitwise.shiftRightZfBy 8 word1 |> Bitwise.and 0xFF
+
+        byte4 =
+            Bitwise.and 0xFF word1
+
+        byte5 =
+            Bitwise.shiftRightZfBy 24 word2 |> Bitwise.and 0xFF
+
+        byte6 =
+            Bitwise.shiftRightZfBy 16 word2 |> Bitwise.and 0xFF
+
+        byte7 =
+            Bitwise.shiftRightZfBy 8 word2 |> Bitwise.and 0xFF
+
+        byte8 =
+            Bitwise.and 0xFF word2
+    in
+    byte1
+        + byte2
+        + byte3
+        + byte4
+        + byte5
+        + byte6
+        + byte7
+        + byte8
