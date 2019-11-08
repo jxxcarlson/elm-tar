@@ -7,3 +7,7 @@ examples/tmp/
 *.hex
 examples/testfiles/
 .idea/
+./tests/VerifyExamples
+node_modules
+package-lock.json
+tests/VerifyExamples/
