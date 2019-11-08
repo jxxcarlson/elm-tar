@@ -1,34 +1,41 @@
-module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
+module Tar exposing
+    ( createArchive, extractArchive
+    , Data(..)
+    , Metadata, defaultMetadata
+    , Mode, defaultMode
+    , encodeFiles, encodeTextFile, encodeTextFiles
+    )
 
-{-| Use
+{-| For more details, see the README. See also the demo app `./examples/Main.elm`
 
-encodeMetaData
+@docs createArchive, extractArchive
 
-       createArchive : List ( MetaData, Data ) -> Bytes
+@docs Data
 
-to create4 a tar archive from arbitrary set of files which may contain either text or binary
-data. To extract files from an archive, imitate this example:
 
-       extractArchive testArchive
+## Metadata
 
-For more details, see the README. See also the demo app `./examples/Main.elm`
+@docs Metadata, defaultMetadata
+@docs Mode, defaultMode
 
-@docs Data, MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata
+
+## Encoders
+
+Convenient for integration with other `Bytes.Encode.Encoder`s.
+
+@docs encodeFiles, encodeTextFile, encodeTextFiles
 
 -}
 
-{-
-   XXXX module Tar exposing (Data(..), MetaData, createArchive, extractArchive, testArchive, encodeFiles, encodeTextFile, encodeTextFiles, defaultMetadata)
-
--}
-
+import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Decoder, Step(..), decode)
 import Bytes.Encode as Encode exposing (encode)
 import Char
-import CheckSum
-import Octal exposing (octalEncoder)
-import Utility
+import Octal
+import Parser exposing ((|.), Parser)
+import Set exposing (Set)
+import String.Graphemes
 
 
 
@@ -37,22 +44,38 @@ import Utility
 --
 
 
-{-| Use `StringData String` for text data,
-`BinaryData Bytes` for binary data, e.g.,
-`StringData "This is a test"` or
-`BinaryData someBytes`
+{-| Use `StringData String` for text data, `BinaryData Bytes` for binary data:
+
+    import Bytes.Encode as Encode
+
+    StringData "This is a test"
+
+    BinaryData (Encode.encode (Encode.string "foo"))
+
 -}
 type Data
     = StringData String
     | BinaryData Bytes
 
 
-{-| A MetaData value contains the information, e.g.,
-file name and file length, needed to construct the header
-for a file in the tar archive. You may use `defaultMetadata` as
-a starting point, modifying only what is needed.
+{-| Information used in the tar header.
+You may use `defaultMetadata` as a starting point, modifying only what is needed.
+
+Fields:
+
+  - **filename**: Name of the file
+  - **mode**: Unix file permissions, e.g. 644
+  - **ownerID**: owner identifier
+  - **groupID**: group identifier
+  - **fileSize**: size of the encoded file in bytes
+  - **lastModificationTime**: last modification time as a posix value
+  - **linkIndicator**: unused
+  - **userName**: user name
+  - **groupName**: group name
+  - **fileNamePrefix**: can be thought of as the name of the folder/directory in which the files to be processed live
+
 -}
-type alias MetaData =
+type alias Metadata =
     { filename : String
     , mode : Mode
     , ownerID : Int
@@ -64,30 +87,36 @@ type alias MetaData =
     , userName : String
     , groupName : String
     , fileNamePrefix : String
-
-    -- , typeFlag : Ascii
     }
 
 
-type alias Ascii =
-    Int
+{-| Defined as
 
+    defaultMetadata : Metadata
+    defaultMetadata =
+        { filename = "test.txt"
+        , mode = defaultMode
+        , ownerID = 501
+        , groupID = 123
+        , fileSize = 20
+        , lastModificationTime = 1542665285
+        , linkIndicator = NormalFile
+        , linkedFileName = "bar.txt"
+        , userName = "anonymous"
+        , groupName = "staff"
+        , fileNamePrefix = "abc"
+        }
 
-{-| defaultMetadata is a dummy MetaData value that you modify
-to suit your needs. It contains a lot of boilerplates
+Example usage:
 
-Example
-
-metaData= { defaultMetadata | filename = "Test.txt" }
-
-See the definition of MetaData to see what other fields you
-may want to modify, or see `/examples/Main.elm`.
+    myMetadata =
+        { defaultMetadata | filename = "Test.txt" }
 
 -}
-defaultMetadata : MetaData
+defaultMetadata : Metadata
 defaultMetadata =
     { filename = "test.txt"
-    , mode = blankMode
+    , mode = defaultMode
     , ownerID = 501
     , groupID = 123
     , fileSize = 20
@@ -97,29 +126,56 @@ defaultMetadata =
     , userName = "anonymous"
     , groupName = "staff"
     , fileNamePrefix = "abc"
-
-    -- , typeFlag = 0
     }
 
 
+{-| -}
 type alias Mode =
-    { user : List FilePermission
-    , group : List FilePermission
-    , other : List FilePermission
-    , system : List SystemInfo
+    { owner : FilePermission
+    , group : FilePermission
+    , other : FilePermission
+    , setUserID : Bool
+    , setGroupID : Bool
     }
 
 
-type SystemInfo
-    = SUID
-    | SGID
-    | SVTX
+type alias FilePermission =
+    { read : Bool
+    , write : Bool
+    , execute : Bool
+    }
 
 
-type FilePermission
-    = Read
-    | Write
-    | Execute
+{-| Default mode
+
+    defaultMode : Mode
+    defaultMode =
+        { owner = { read = True, write = True, execute = True }
+        , group = { read = True, write = True, execute = False }
+        , other = { read = True, write = False, execute = False }
+        , setUserID = False
+        , setGroupID = False
+        }
+
+-}
+defaultMode : Mode
+defaultMode =
+    { owner = { read = True, write = True, execute = True }
+    , group = { read = True, write = True, execute = False }
+    , other = { read = True, write = False, execute = False }
+    , setUserID = False
+    , setGroupID = False
+    }
+
+
+nullMode : Mode
+nullMode =
+    { owner = { read = False, write = False, execute = False }
+    , group = { read = False, write = False, execute = False }
+    , other = { read = False, write = False, execute = False }
+    , setUserID = False
+    , setGroupID = False
+    }
 
 
 type Link
@@ -129,224 +185,140 @@ type Link
 
 
 
-{- For extracting a tar archive -}
-
-
-type BlockInfo
-    = FileInfo ExtendedMetaData
-    | NullBlock
-    | Error
-
-
-type ExtendedMetaData
-    = ExtendedMetaData MetaData (Maybe String)
-
-
-fileSize : ExtendedMetaData -> Int
-fileSize (ExtendedMetaData metaData _) =
-    metaData.fileSize
-
-
-fileSizeOfBlockInfo : BlockInfo -> Int
-fileSizeOfBlockInfo blockInfo =
-    case blockInfo of
-        FileInfo extendedMetaData ->
-            fileSize extendedMetaData
-
-        NullBlock ->
-            0
-
-        Error ->
-            0
-
-
-fileExtension : ExtendedMetaData -> Maybe String
-fileExtension (ExtendedMetaData metaData ext) =
-    ext
-
-
-type State
-    = Start
-    | Processing
-    | EndOfData
-
-
-type alias Output =
-    ( BlockInfo, Data )
-
-
-type alias OutputList =
-    List Output
-
-
-
---
--- TESTING
---
-
-
-{-| A small tar archive for testing purposes
--}
-testArchive : Bytes
-testArchive =
-    encodeTextFiles
-        [ ( { defaultMetadata | filename = "one.txt" }, "One" )
-        , ( { defaultMetadata | filename = "two.txt" }, "Two" )
-        ]
-        |> encode
-
-
-
 --
 -- EXTRACT ARCHIVE
 --
 
 
-{-| Try
-
-> import Tar exposing(..)
-> extractArchive testArchive
-
-to test this function
-
+{-| Decode an archive into its constituent files.
 -}
-extractArchive : Bytes -> List ( MetaData, Data )
+extractArchive : Bytes -> List ( Metadata, Data )
 extractArchive bytes =
-    bytes
-        |> decode decodeFiles
-        |> Maybe.withDefault []
-        |> List.filter (\x -> List.member (blockInfoOfOuput x) [ NullBlock, Error ] |> not)
-        |> List.map simplifyOutput
-        |> List.reverse
+    decodeArchive bytes
 
 
+decodeTextAsStringHelp : ( Metadata, Bytes ) -> ( Metadata, Data )
+decodeTextAsStringHelp ( meta, bytes ) =
+    case getFileExtension meta.filename of
+        Nothing ->
+            -- cannot determine filetype; default to binary
+            ( meta, BinaryData (takeBytes meta.fileSize bytes) )
 
-{- Decoders -}
+        Just extension ->
+            if Set.member extension textFileExtensions then
+                case Decode.decode (Decode.string meta.fileSize) bytes of
+                    Just str ->
+                        ( meta, StringData str )
 
-
-{-| Example:
-
-> import Bytes.Decode exposing(decode)
-> import Tar exposing(..)
-> decode decodeFiles testArchive
-
--}
-decodeFiles : Decoder OutputList
-decodeFiles =
-    Decode.loop ( Start, [] ) fileStep
-
-
-fileStep : ( State, OutputList ) -> Decoder (Step ( State, OutputList ) OutputList)
-fileStep ( state, outputList ) =
-    let
-        info : OutputList -> State
-        info outputList_ =
-            case outputList_ of
-                [] ->
-                    Start
-
-                ( headerInfo_, data ) :: xs ->
-                    stateFromBlockInfo headerInfo_
-    in
-    if state == EndOfData then
-        Decode.succeed (Done outputList)
-
-    else
-        let
-            newState =
-                info outputList
-        in
-        Decode.map (\output -> Loop ( newState, output :: outputList )) decodeFile
-
-
-decodeFile : Decoder ( BlockInfo, Data )
-decodeFile =
-    decodeFirstBlock
-        |> Decode.andThen (\blockInfo -> decodeOtherBlocks blockInfo)
-
-
-decodeFirstBlock : Decoder BlockInfo
-decodeFirstBlock =
-    Decode.bytes 512
-        |> Decode.map (\bytes -> getBlockInfo bytes)
-
-
-decodeOtherBlocks : BlockInfo -> Decoder ( BlockInfo, Data )
-decodeOtherBlocks headerInfo =
-    case headerInfo of
-        FileInfo (ExtendedMetaData fileRecord maybeExtension) ->
-            case maybeExtension of
-                Just ext ->
-                    if List.member ext textFileExtensions then
-                        decodeStringBody (ExtendedMetaData fileRecord maybeExtension)
-
-                    else
-                        decodeBinaryBody (ExtendedMetaData fileRecord maybeExtension)
-
-                Nothing ->
-                    decodeBinaryBody (ExtendedMetaData fileRecord maybeExtension)
-
-        NullBlock ->
-            Decode.succeed ( NullBlock, StringData "NullBlock" )
-
-        Error ->
-            Decode.succeed ( Error, StringData "Error" )
-
-
-decodeStringBody : ExtendedMetaData -> Decoder ( BlockInfo, Data )
-decodeStringBody fileHeaderInfo =
-    let
-        (ExtendedMetaData fileRecord maybeExtension) =
-            fileHeaderInfo
-    in
-    Decode.string (round512 fileRecord.fileSize)
-        |> Decode.map (\str -> ( FileInfo fileHeaderInfo, StringData (smashNulls str) ))
-
-
-
--- StringData (String.left fileRecord.fileSize str) )
-
-
-decodeBinaryBody : ExtendedMetaData -> Decoder ( BlockInfo, Data )
-decodeBinaryBody fileHeaderInfo =
-    let
-        (ExtendedMetaData fileRecord maybeExtension) =
-            fileHeaderInfo
-
-        n =
-            fileRecord.fileSize
-    in
-    Decode.bytes (round512 fileRecord.fileSize)
-        |> Decode.map (\bytes -> ( FileInfo fileHeaderInfo, BinaryData (take n bytes) ))
-
-
-{-|
-
-> tf |> getBlockInfo
-> { fileName = "test.txt", length = 512 }
-
--}
-getBlockInfo : Bytes -> BlockInfo
-getBlockInfo bytes =
-    case isHeader_ bytes of
-        True ->
-            FileInfo (getFileHeaderInfo bytes)
-
-        False ->
-            if decode (Decode.string 512) bytes == Just nullString512 then
-                NullBlock
+                    Nothing ->
+                        ( meta, StringData "" )
 
             else
-                Error
+                ( meta, BinaryData (takeBytes meta.fileSize bytes) )
 
 
-nullString512 : String
-nullString512 =
-    String.repeat 512 (String.fromChar (Char.fromCode 0))
+decodeArchive : Bytes -> List ( Metadata, Data )
+decodeArchive bytes =
+    case Decode.decode (decodeFiles (Bytes.width bytes // 512)) bytes of
+        Just v ->
+            List.map decodeTextAsStringHelp v
+
+        Nothing ->
+            []
 
 
+
+-- DECODERS
+
+
+decodeFiles : Int -> Decoder (List ( Metadata, Bytes ))
+decodeFiles n =
+    Decode.loop { state = Start, blocksRemaining = n, files = [] } fileStep
+
+
+type State
+    = Start
+    | Processing Metadata (List Bytes)
+
+
+type alias Accum =
+    { state : State
+    , blocksRemaining : Int
+    , files : List ( Metadata, Bytes )
+    }
+
+
+fileStep : Accum -> Decoder (Step Accum (List ( Metadata, Bytes )))
+fileStep { state, blocksRemaining, files } =
+    let
+        build meta blocks =
+            ( meta
+            , List.reverse blocks
+                |> List.map Encode.bytes
+                |> Encode.sequence
+                |> Encode.encode
+            )
+    in
+    if blocksRemaining > 0 then
+        Decode.bytes 512
+            |> Decode.andThen
+                (\block ->
+                    case
+                        if isMetadataBlock block then
+                            Decode.decode decodeMetadata block
+
+                        else
+                            Nothing
+                    of
+                        Just (Just { metadata, checksum }) ->
+                            -- the checksum is the sum of the header bytes, where the
+                            -- checksum field is taken to be 8 spaces
+                            -- so here we calculate the byte sum of `block`, and subtract the
+                            -- sum of the checksum bytes
+                            if checksum.value == sumBytes block - checksum.byteSum then
+                                Decode.succeed
+                                    { state = Processing metadata []
+                                    , blocksRemaining = blocksRemaining - 1
+                                    , files =
+                                        case state of
+                                            Start ->
+                                                files
+
+                                            Processing meta blocks ->
+                                                build meta blocks :: files
+                                    }
+
+                            else
+                                -- invalid checksum
+                                Decode.fail
+
+                        _ ->
+                            case state of
+                                Start ->
+                                    -- first block must be a metadata header
+                                    Decode.fail
+
+                                Processing meta blocks ->
+                                    Decode.succeed
+                                        { state = Processing meta (block :: blocks)
+                                        , blocksRemaining = blocksRemaining - 1
+                                        , files = files
+                                        }
+                )
+            |> Decode.map Decode.Loop
+
+    else
+        case state of
+            Start ->
+                Decode.succeed (Decode.Done (List.reverse files))
+
+            Processing meta blocks ->
+                Decode.succeed (Decode.Done (List.reverse (build meta blocks :: files)))
+
+
+textFileExtensions : Set String
 textFileExtensions =
-    [ "text", "txt", "tex", "csv", "html" ]
+    Set.fromList [ "text", "txt", "tex", "csv", "html" ]
 
 
 getFileExtension : String -> Maybe String
@@ -357,39 +329,11 @@ getFileExtension str =
                 |> String.split "."
                 |> List.reverse
     in
-    case List.length fileParts > 1 of
-        True ->
-            List.head fileParts
+    if List.length fileParts > 1 then
+        List.head fileParts
 
-        False ->
-            Nothing
-
-
-getFileHeaderInfo : Bytes -> ExtendedMetaData
-getFileHeaderInfo bytes =
-    let
-        fileName =
-            getFileName bytes
-                |> Maybe.withDefault "unknownFileName"
-
-        metadata =
-            { defaultMetadata
-                | filename = fileName
-                , mode = getMode bytes
-                , ownerID = getNumber 108 8 bytes
-                , groupID = getNumber 116 8 bytes
-                , fileSize = getFileLength bytes
-                , lastModificationTime = 0
-                , linkIndicator = NormalFile
-                , linkedFileName = "foo.txt"
-                , userName = getString 265 32 bytes
-                , groupName = getString 297 32 bytes
-                , fileNamePrefix = getString 345 155 bytes
-
-                -- , typeFlag = getNumber 156 1 bytes
-            }
-    in
-    ExtendedMetaData metadata (getFileExtension fileName)
+    else
+        Nothing
 
 
 
@@ -411,209 +355,68 @@ round512 n =
         n + (512 - residue)
 
 
-{-| isHeader bytes == True if and only if
-bytes has width 512 and contains the
-string "ustar"
--}
-isHeader : Bytes -> Bool
-isHeader bytes =
-    if Bytes.width bytes == 512 then
-        isHeader_ bytes
+modeBits :
+    { gid : Int
+    , group : { execute : Int, read : Int, write : Int }
+    , other : { execute : Int, read : Int, write : Int }
+    , owner : { execute : Int, read : Int, write : Int }
+    , reserved : Int
+    , uid : Int
+    }
+modeBits =
+    { uid = 2048
+    , gid = 1024
 
-    else
-        False
-
-
-isHeader_ : Bytes -> Bool
-isHeader_ bytes =
-    bytes
-        |> decode (Decode.string 512)
-        |> Maybe.map (\str -> String.slice 257 262 str == "ustar")
-        |> Maybe.withDefault False
-
-
-getFileName : Bytes -> Maybe String
-getFileName bytes =
-    bytes
-        |> decode (Decode.string 100)
-        |> Maybe.map (String.replace (String.fromChar (Char.fromCode 0)) "")
-
-
-getFileLength : Bytes -> Int
-getFileLength bytes =
-    bytes
-        |> decode (Decode.string 256)
-        |> Maybe.map (String.slice 124 136)
-        |> Maybe.map (stripLeadingString "0")
-        |> Maybe.map String.trim
-        |> Maybe.andThen String.toInt
-        |> Maybe.withDefault 0
+    -- reserved/unused
+    , reserved =
+        512
+    , owner =
+        { read = 256
+        , write = 128
+        , execute = 64
+        }
+    , group =
+        { read = 32
+        , write = 16
+        , execute = 8
+        }
+    , other =
+        { read = 4
+        , write = 2
+        , execute = 1
+        }
+    }
 
 
-getNumber : Int -> Int -> Bytes -> Int
-getNumber begin length bytes =
-    bytes
-        |> decode (Decode.string 256)
-        |> Maybe.map (String.slice begin (begin + length - 1))
-        |> Maybe.map (String.split "")
-        |> Maybe.withDefault (List.repeat length "0")
-        |> List.map String.toInt
-        |> Utility.maybeValues
-        |> Octal.integerValueofOctalList
-
-
-getString : Int -> Int -> Bytes -> String
-getString begin length bytes =
-    bytes
-        |> decode (Decode.string 256)
-        |> Maybe.map (String.slice begin (begin + length - 1))
-        |> Maybe.withDefault "Oops!"
-
-
-getMode : Bytes -> Mode
-getMode bytes =
-    let
-        permissions =
-            bytes
-                |> decode (Decode.string 256)
-                |> Maybe.map (String.slice 102 106)
-                |> Maybe.map (String.split "")
-                |> Maybe.withDefault [ "0", "6", "4", "4" ]
-                |> List.map String.toInt
-                |> Utility.maybeValues
-                |> List.map (Octal.binaryDigits 3)
-                |> List.map filePermissionOfBinaryDigits
-    in
-    addUser permissions nullMode
-        |> addGroup permissions
-        |> addOther permissions
-
-
-filePermissionOfBinaryDigits : List Int -> List FilePermission
-filePermissionOfBinaryDigits binaryDigits =
-    canRead binaryDigits []
-        |> canWrite binaryDigits
-        |> canExecute binaryDigits
-
-
-addUser : List (List FilePermission) -> Mode -> Mode
-addUser lp mode =
-    case Utility.listGetAt 1 lp of
-        Just p ->
-            { mode | user = p }
-
-        _ ->
-            mode
-
-
-addGroup : List (List FilePermission) -> Mode -> Mode
-addGroup lp mode =
-    case Utility.listGetAt 2 lp of
-        Just p ->
-            { mode | group = p }
-
-        _ ->
-            mode
-
-
-addOther : List (List FilePermission) -> Mode -> Mode
-addOther lp mode =
-    case Utility.listGetAt 3 lp of
-        Just p ->
-            { mode | other = p }
-
-        _ ->
-            mode
-
-
-{-| Assume fpl is like [1,1,0]}
--}
-canRead : List Int -> List FilePermission -> List FilePermission
-canRead binaryDigits fpl =
-    case Utility.listGetAt 0 binaryDigits of
-        Just 1 ->
-            Read :: fpl
-
-        _ ->
-            fpl
-
-
-canWrite : List Int -> List FilePermission -> List FilePermission
-canWrite binaryDigits fpl =
-    case Utility.listGetAt 1 binaryDigits of
-        Just 1 ->
-            Write :: fpl
-
-        _ ->
-            fpl
-
-
-canExecute : List Int -> List FilePermission -> List FilePermission
-canExecute binaryDigits fpl =
-    case Utility.listGetAt 2 binaryDigits of
-        Just 1 ->
-            Execute :: fpl
-
-        _ ->
-            fpl
-
-
-getFileDataFromHeaderInfo : BlockInfo -> MetaData
-getFileDataFromHeaderInfo headerInfo =
-    case headerInfo of
-        FileInfo (ExtendedMetaData fileRecord _) ->
-            fileRecord
-
-        _ ->
-            defaultMetadata
-
-
-stateFromBlockInfo : BlockInfo -> State
-stateFromBlockInfo blockInfo =
-    case blockInfo of
-        FileInfo _ ->
-            Processing
-
-        NullBlock ->
-            EndOfData
-
-        Error ->
-            EndOfData
-
-
-blockInfoOfOuput : Output -> BlockInfo
-blockInfoOfOuput ( blockInfo, output ) =
-    blockInfo
-
-
-simplifyOutput : Output -> ( MetaData, Data )
-simplifyOutput ( blockInfo, data ) =
-    ( getFileDataFromHeaderInfo blockInfo, data )
-
-
-simplifyOutput2 : Output -> ( MetaData, Data )
-simplifyOutput2 ( blockInfo, data ) =
-    let
-        n =
-            fileSizeOfBlockInfo blockInfo
-    in
-    ( getFileDataFromHeaderInfo blockInfo, take2 n data )
-
-
-take2 : Int -> Data -> Data
-take2 k data =
-    case data of
-        StringData str ->
-            StringData str
-
-        BinaryData bytes_ ->
-            BinaryData (take k bytes_)
-
-
-take : Int -> Bytes -> Bytes
-take k bytes =
-    Decode.decode (Decode.bytes k) bytes
-        |> Maybe.withDefault (Encode.encode (Encode.unsignedInt8 0))
+decodeMode : Decoder Mode
+decodeMode =
+    Octal.decode 8
+        |> Decode.map
+            (\flags ->
+                let
+                    isSet : Int -> Int -> Bool
+                    isSet bit pattern =
+                        Bitwise.and bit pattern /= 0
+                in
+                { owner =
+                    { read = isSet modeBits.owner.read flags
+                    , write = isSet modeBits.owner.write flags
+                    , execute = isSet modeBits.owner.execute flags
+                    }
+                , group =
+                    { read = isSet modeBits.group.read flags
+                    , write = isSet modeBits.group.write flags
+                    , execute = isSet modeBits.group.execute flags
+                    }
+                , other =
+                    { read = isSet modeBits.other.read flags
+                    , write = isSet modeBits.other.write flags
+                    , execute = isSet modeBits.other.execute flags
+                    }
+                , setUserID = isSet modeBits.uid flags
+                , setGroupID = isSet modeBits.gid flags
+                }
+            )
 
 
 
@@ -624,82 +427,98 @@ take k bytes =
 
 {-| Example:
 
-> data1 = ( { defaultMetadata | filename = "one.txt" }, StringData "One" )
-> data2 = ( { defaultMetadata | filename = "two.txt" }, StringData "Two" )
-> createArchive [data1, data2]
+    data1 : ( Metadata, Data )
+    data1 =
+        ( { defaultMetadata | filename = "one.txt" }
+        , StringData "One"
+        )
 
-> createArchive [data1, data2]
-> <3072 bytes> : Bytes.Bytes
+    data2 : ( Metadata, Data )
+    data2 =
+        ( { defaultMetadata | filename = "two.txt" }
+        , StringData "Two"
+        )
+
+    createArchive [data1, data2]
 
 -}
-createArchive : List ( MetaData, Data ) -> Bytes
+createArchive : List ( Metadata, Data ) -> Bytes
 createArchive dataList =
     encodeFiles dataList |> encode
 
 
-{-| Example
+{-| Per the spec:
 
-encodeFiles [(defaultMetadata, "This is a test"), (defaultMetadata, "Lah di dah do day!")] |> Bytes.Encode.encode == <2594 bytes> : Bytes
-
--}
-encodeTextFiles : List ( MetaData, String ) -> Encode.Encoder
-encodeTextFiles fileList =
-    Encode.sequence
-        (List.map (\item -> encodeTextFile (Tuple.first item) (Tuple.second item)) fileList
-            ++ [ Encode.string (normalizeString 1024 "") ]
-        )
-
-
-{-|
-
-      Example
-
-      import Tar exposing(defaultMetadata)
-
-      metaData_ =
-          defaultMetadata
-
-      metaData1 =
-          { metaData_ | filename = "a.txt" }
-
-      content1 =
-          "One two three\n"
-
-      metaData2
-          { metaData_ | filename = "c.binary" }
-
-      content2 =
-          Hex.Convert
-
-      Tar.encodeFiles
-          [ ( metaData1, StringData content1 )
-          , ( metaData2, BinaryData content2 )
-          ]
-          |> Bytes.Encode.encode
-
-      Note: `Hex.Convert
+> At the end of the archive file there are two 512-byte blocks filled with binary zeros as an end-of-file marker.
 
 -}
-encodeFiles : List ( MetaData, Data ) -> Encode.Encoder
+endOfFileMarker : Encode.Encoder
+endOfFileMarker =
+    String.repeat 1024 "\u{0000}"
+        |> Encode.string
+
+
+{-| Encoder for a list of files
+
+    import Bytes
+    import Bytes.Encode as Encode
+    import Tar exposing (defaultMetadata)
+
+    metaData1 : Tar.Metadata
+    metaData1 =
+        { defaultMetadata | filename = "a.txt" }
+
+    content1 : String
+    content1 =
+        "One two three\n"
+
+    metaData2 : Tar.Metadata
+    metaData2
+        { defaultMetadata | filename = "c.binary" }
+
+    content2 : Bytes.Bytes
+    content2 =
+        "1345"
+          |> Encode.string
+          |> Encode.encode
+
+    result : Bytes
+    result =
+        [ ( metaData1, Tar.StringData content1 )
+        , ( metaData2, Tar.BinaryData content2 )
+        ]
+        |> Tar.encodeFiles
+        |> Bytes.Encode.encode
+
+-}
+encodeFiles : List ( Metadata, Data ) -> Encode.Encoder
 encodeFiles fileList =
-    Encode.sequence
-        (List.map (\( m, d ) -> encodeFile m d) fileList
-            ++ [ Encode.string (normalizeString 1024 "") ]
-        )
+    let
+        folder ( metadata, string ) accum =
+            encodeFile metadata string :: accum
+    in
+    List.foldr folder [ endOfFileMarker ] fileList
+        |> Encode.sequence
 
 
-{-| Example:
-
-> encodeTextFile defaultMetadata "Test!" |> encode
-> <1024 bytes> : Bytes.Bytes
-
--}
-encodeTextFile : MetaData -> String -> Encode.Encoder
+{-| -}
+encodeTextFile : Metadata -> String -> Encode.Encoder
 encodeTextFile metaData contents =
     encodeBinaryFile metaData (Encode.encode (Encode.string contents))
 
 
-encodeFile : MetaData -> Data -> Encode.Encoder
+{-| -}
+encodeTextFiles : List ( Metadata, String ) -> Encode.Encoder
+encodeTextFiles fileList =
+    let
+        folder ( metadata, string ) accum =
+            encodeTextFile metadata string :: accum
+    in
+    List.foldr folder [ endOfFileMarker ] fileList
+        |> Encode.sequence
+
+
+encodeFile : Metadata -> Data -> Encode.Encoder
 encodeFile metaData data =
     case data of
         StringData contents ->
@@ -709,7 +528,7 @@ encodeFile metaData data =
             encodeBinaryFile metaData bytes
 
 
-encodeBinaryFile : MetaData -> Bytes -> Encode.Encoder
+encodeBinaryFile : Metadata -> Bytes -> Encode.Encoder
 encodeBinaryFile metaData bytes =
     let
         width =
@@ -717,11 +536,11 @@ encodeBinaryFile metaData bytes =
     in
     case width of
         0 ->
-            encodeMetaData { metaData | fileSize = width }
+            encodeMetadata { metaData | fileSize = width }
 
         _ ->
             Encode.sequence
-                [ encodeMetaData { metaData | fileSize = width }
+                [ encodeMetadata { metaData | fileSize = width }
                 , encodePaddedBytes bytes
                 ]
 
@@ -734,8 +553,15 @@ encodePaddedBytes bytes =
     in
     Encode.sequence
         [ Encode.bytes bytes
-        , Encode.sequence <| List.repeat paddingWidth (Encode.unsignedInt8 0)
+        , Encode.bytes (takeBytes paddingWidth nullBlock)
         ]
+
+
+nullBlock : Bytes
+nullBlock =
+    List.repeat (512 // 4) (Encode.unsignedInt32 Bytes.BE 0)
+        |> Encode.sequence
+        |> Encode.encode
 
 
 
@@ -744,51 +570,186 @@ encodePaddedBytes bytes =
 --
 
 
-encodeMetaData : MetaData -> Encode.Encoder
-encodeMetaData metadata =
+andMap : Decoder a -> Decoder (a -> b) -> Decoder b
+andMap later first =
+    Decode.map2 (\f x -> f x) first later
+
+
+skip : Decoder x -> Decoder a -> Decoder a
+skip later first =
+    Decode.map2 (\f _ -> f) first later
+
+
+{-| Performance note
+
+Why not use `Decode.fail` instead of decoding a maybe? It is very slow!
+failing uses javascripts exception mechanism which is very slow. Perhaps because
+it needs to store a lot of information (stack traces) etc?
+
+Anyhow this is almost 2X faster
+
+-}
+decodeMetadata : Decoder (Maybe { metadata : Metadata, checksum : Checksum })
+decodeMetadata =
     let
-        fr =
-            preliminaryEncodeMetaData metadata |> encode
+        helper name mode uid gid size mtime checksum _ linkname magic _ uname gname _ prefix _ =
+            if String.startsWith "ustar" magic then
+                Just
+                    { metadata =
+                        { filename = name
+                        , mode = mode
+                        , ownerID = uid
+                        , groupID = gid
+                        , fileSize = size
+                        , lastModificationTime = mtime
+                        , linkIndicator = NormalFile
+                        , linkedFileName = linkname
+                        , userName = uname
+                        , groupName = gname
+                        , fileNamePrefix = prefix
+                        }
+                    , checksum = checksum
+                    }
+
+            else
+                Nothing
+
+        unused n =
+            Decode.bytes n
+    in
+    map16 helper
+        (cstring 100)
+        decodeMode
+        (Octal.decode 8)
+        (Octal.decode 8)
+        (Octal.decode 12)
+        (Octal.decode 12)
+        -- center
+        decodeChecksum
+        -- bottom
+        (unused 1)
+        (cstring 100)
+        (cstring 6)
+        (unused 2)
+        (cstring 32)
+        (cstring 32)
+        (unused 16)
+        (cstring 131)
+        (unused 24)
+
+
+{-| A meta block is identifier by a "magic" string
+
+    ustar\u{0000}
+
+However, some implementations seem to use a space as the final character
+
+    ustar\u{0020}
+
+Here we decode 6 bytes, and match the first 5 with the ascii-encoded letters of the magic string
+
+-}
+isMetadataBlock : Bytes -> Bool
+isMetadataBlock bytes =
+    let
+        -- "usta" as ascii hex
+        usta =
+            0x75737461
+
+        -- "r\u{0000}" as ascii hex
+        rNull =
+            0x7200
+
+        decoder =
+            Decode.map3
+                (\_ a b ->
+                    -- mask b to allow the final character to be whatever
+                    a == usta && Bitwise.and 0xFF00 b == rNull
+                )
+                (Decode.bytes 257)
+                (Decode.unsignedInt32 Bytes.BE)
+                (Decode.unsignedInt16 Bytes.BE)
+    in
+    Decode.decode decoder bytes
+        |> Maybe.withDefault False
+
+
+type alias Checksum =
+    { value : Int
+    , byteSum : Int
+    }
+
+
+decodeChecksum : Decoder Checksum
+decodeChecksum =
+    Decode.bytes 8
+        |> Decode.andThen
+            (\bytes ->
+                case Decode.decode (Octal.decode 7) bytes of
+                    Just value ->
+                        Decode.succeed { value = value, byteSum = sumBytes bytes - 8 * Char.toCode ' ' }
+
+                    Nothing ->
+                        Decode.fail
+            )
+
+
+{-| Encode metadata
+
+The metadata contains a checksum, based on the other fields of the metadata header.
+Therefore we must first encode those parts (the checksum field is 8 spaces in this case),
+sum its bytes, then re-encode the full header with the checksum.
+
+-}
+encodeMetadata : Metadata -> Encode.Encoder
+encodeMetadata metadata =
+    let
+        metaDataTop : Bytes
+        metaDataTop =
+            [ Encode.string (normalizeString 100 metadata.filename)
+            , encodeMode metadata.mode
+            , Encode.sequence [ Octal.encode 8 metadata.ownerID ]
+            , Encode.sequence [ Octal.encode 8 metadata.groupID ]
+            , Encode.sequence [ Octal.encode 12 metadata.fileSize ]
+            , Encode.sequence [ Octal.encode 12 metadata.lastModificationTime ]
+            ]
+                |> Encode.sequence
+                |> Encode.encode
+
+        metaDataBottom : Bytes
+        metaDataBottom =
+            [ linkEncoder metadata.linkIndicator
+            , Encode.string (normalizeString 100 metadata.linkedFileName)
+            , Encode.string "ustar\u{0000}"
+            , Encode.string "00"
+            , Encode.string (normalizeString 32 metadata.userName)
+            , Encode.string (normalizeString 32 metadata.groupName)
+            , Encode.sequence [ Octal.encode 8 0 ]
+            , Encode.sequence [ Octal.encode 8 0 ]
+            , Encode.string (normalizeString 167 metadata.fileNamePrefix)
+            ]
+                |> Encode.sequence
+                |> Encode.encode
+
+        preliminary : List Encode.Encoder
+        preliminary =
+            [ Encode.bytes metaDataTop
+            , Encode.string (String.repeat 8 " ")
+            , Encode.bytes metaDataBottom
+            ]
+
+        checksum : Int
+        checksum =
+            preliminary
+                |> Encode.sequence
+                |> Encode.encode
+                |> sumBytes
     in
     Encode.sequence
-        [ Encode.string (normalizeString 100 metadata.filename)
-        , encodeMode metadata.mode
-        , Encode.sequence [ octalEncoder 6 metadata.ownerID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 6 metadata.groupID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 11 metadata.fileSize, encodedSpace ]
-        , Encode.sequence [ octalEncoder 11 metadata.lastModificationTime, encodedSpace ]
-        , Encode.sequence [ CheckSum.sumEncoder fr, encodedNull, encodedSpace ]
-        , linkEncoder metadata.linkIndicator
-        , Encode.string (normalizeString 100 metadata.linkedFileName)
-        , Encode.sequence [ Encode.string "ustar", encodedNull ]
-        , Encode.string "00"
-        , Encode.string (normalizeString 32 metadata.userName)
-        , Encode.string (normalizeString 32 metadata.groupName)
-        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
-        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
-        , Encode.string (normalizeString 167 metadata.fileNamePrefix)
-        ]
-
-
-preliminaryEncodeMetaData : MetaData -> Encode.Encoder
-preliminaryEncodeMetaData metadata =
-    Encode.sequence
-        [ Encode.string (normalizeString 100 metadata.filename)
-        , encodeMode metadata.mode
-        , Encode.sequence [ octalEncoder 6 metadata.ownerID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 6 metadata.groupID, encodedSpace, encodedNull ]
-        , Encode.sequence [ octalEncoder 11 metadata.fileSize, encodedSpace ]
-        , Encode.sequence [ octalEncoder 11 metadata.lastModificationTime, encodedSpace ]
-        , Encode.string "        "
-        , encodedSpace -- slinkEncoder fileRecord.linkIndicator
-        , Encode.string (normalizeString 100 metadata.linkedFileName)
-        , Encode.sequence [ Encode.string "ustar", encodedNull ]
-        , Encode.string "00"
-        , Encode.string (normalizeString 32 metadata.userName)
-        , Encode.string (normalizeString 32 metadata.groupName)
-        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
-        , Encode.sequence [ octalEncoder 7 0, encodedSpace ]
-        , Encode.string (normalizeString 167 metadata.fileNamePrefix)
+        [ Encode.bytes metaDataTop
+        , Octal.encode 7 checksum
+        , Encode.string " "
+        , Encode.bytes metaDataBottom
         ]
 
 
@@ -805,163 +766,43 @@ linkEncoder link =
             Encode.string "2"
 
 
-encodeFilePermissions : List FilePermission -> Encode.Encoder
-encodeFilePermissions fps =
-    fps
-        |> List.map encodeFilePermission
-        |> List.sum
-        |> (\x -> x + 48)
-        |> Encode.unsignedInt8
-
-
-encodeSystemInfo : SystemInfo -> Int
-encodeSystemInfo si =
-    case si of
-        SVTX ->
-            1
-
-        SGID ->
-            2
-
-        SUID ->
-            4
-
-
-encodeSystemInfos : List SystemInfo -> Encode.Encoder
-encodeSystemInfos sis =
-    sis
-        |> List.map encodeSystemInfo
-        |> List.sum
-        |> (\x -> x + 48)
-        |> Encode.unsignedInt8
-
-
 encodeMode : Mode -> Encode.Encoder
 encodeMode mode =
-    Encode.sequence
-        [ Encode.unsignedInt8 48
-        , Encode.unsignedInt8 48
-        , Encode.unsignedInt8 48
-        , encodeFilePermissions mode.user
-        , encodeFilePermissions mode.group
-        , encodeFilePermissions mode.other
-        , Encode.unsignedInt8 32 -- encodeSystemInfos mode.system
-        , Encode.unsignedInt8 0
-        ]
-
-
-encodeInt8 : Int -> Encode.Encoder
-encodeInt8 n =
-    Encode.sequence
-        [ Encode.unsignedInt32 BE 0
-        , Encode.unsignedInt32 BE n
-        ]
-
-
-encodeInt12 : Int -> Encode.Encoder
-encodeInt12 n =
-    Encode.sequence
-        [ Encode.unsignedInt32 BE 0
-        , Encode.unsignedInt32 BE 0
-        , Encode.unsignedInt32 BE n
-        ]
-
-
-
-{- HELPERS FOR ENCODEING FILES -}
-
-
-{-| Add zeros at end of file to make its length a multiple of 512.
--}
-padContents : String -> String
-padContents str =
     let
-        paddingLength =
-            modBy 512 (String.length str) |> (\x -> 512 - x)
+        isSet test bit =
+            if test then
+                bit
 
-        nullString =
-            String.fromChar (Char.fromCode 0)
+            else
+                0
 
-        padding =
-            String.repeat paddingLength nullString
+        bitflags : Int
+        bitflags =
+            0
+                -- user
+                |> Bitwise.or (isSet mode.owner.read modeBits.owner.read)
+                |> Bitwise.or (isSet mode.owner.write modeBits.owner.write)
+                |> Bitwise.or (isSet mode.owner.execute modeBits.owner.execute)
+                -- group
+                |> Bitwise.or (isSet mode.group.read modeBits.group.read)
+                |> Bitwise.or (isSet mode.group.write modeBits.group.write)
+                |> Bitwise.or (isSet mode.group.execute modeBits.group.execute)
+                -- other
+                |> Bitwise.or (isSet mode.other.read modeBits.other.read)
+                |> Bitwise.or (isSet mode.other.write modeBits.other.write)
+                |> Bitwise.or (isSet mode.other.execute modeBits.other.execute)
+                -- ids
+                |> Bitwise.or (isSet mode.setUserID modeBits.uid)
+                |> Bitwise.or (isSet mode.setGroupID modeBits.gid)
     in
-    str ++ padding
-
-
-encodedSpace =
-    Encode.string " "
-
-
-encodedZero =
-    Encode.string "0"
-
-
-encodedNull =
-    Encode.string (String.fromChar (Char.fromCode 0))
-
-
-blankMode =
-    { user = [ Read, Write, Execute ]
-    , group = [ Read, Write ]
-    , other = [ Read ]
-    , system = [ SGID ]
-    }
-
-
-nullMode =
-    { user = []
-    , group = []
-    , other = []
-    , system = []
-    }
-
-
-encodeFilePermission : FilePermission -> Int
-encodeFilePermission fp =
-    case fp of
-        Read ->
-            4
-
-        Write ->
-            2
-
-        Execute ->
-            1
+    Octal.encode 8 bitflags
 
 
 
+-- HELPERS FOR ENCODING FILES
 --
 -- HELPERS
 --
-
-
-stripLeadingString : String -> String -> String
-stripLeadingString lead str =
-    str
-        |> String.split ""
-        |> stripLeadingElement lead
-        |> String.join ""
-
-
-stripLeadingElement : a -> List a -> List a
-stripLeadingElement lead list =
-    case list of
-        [] ->
-            []
-
-        [ x ] ->
-            if lead == x then
-                []
-
-            else
-                [ x ]
-
-        x :: xs ->
-            if lead == x then
-                stripLeadingElement lead xs
-
-            else
-                x :: xs
 
 
 {-| Encode a c-style null-delimited string of a specific length.
@@ -972,6 +813,9 @@ stripLeadingElement lead list =
 We must be careful with unicode characters here: for `String.length` all characters
 are the same width (namely 1), but when encoded as utf-8 (with `Encode.string`), some characters
 can take more than one byte.
+
+Functions in the `String` module implicitly use the character length. We use `String.Graphemes` here
+to ensure the string is within limits, but in fact a valid string (so no "half" characters).
 
 -}
 normalizeString : Int -> String -> String
@@ -990,7 +834,7 @@ normalizeString desiredLength str =
                         -- `desiredLength` bytes, not characters
                         |> String.left desiredLength
                         -- so this step is required
-                        |> dropLeftLoop (desiredLength - 1)
+                        |> dropRightLoop (desiredLength - 1)
 
                 paddingSize =
                     desiredLength - Encode.getStringWidth dropped
@@ -998,10 +842,10 @@ normalizeString desiredLength str =
             dropped ++ String.repeat paddingSize "\u{0000}"
 
 
-dropLeftLoop : Int -> String -> String
-dropLeftLoop desiredLength str =
+dropRightLoop : Int -> String -> String
+dropRightLoop desiredLength str =
     if Encode.getStringWidth str > desiredLength then
-        dropLeftLoop desiredLength (String.dropRight 1 str)
+        dropRightLoop desiredLength (String.Graphemes.dropRight 1 str)
 
     else
         str
@@ -1009,4 +853,132 @@ dropLeftLoop desiredLength str =
 
 smashNulls : String -> String
 smashNulls str =
-    String.replace (String.fromChar (Char.fromCode 0)) "" str
+    case Parser.run noNullsParser str of
+        Ok v ->
+            v
+
+        Err _ ->
+            ""
+
+
+noNullsParser : Parser String
+noNullsParser =
+    Parser.succeed ()
+        |. Parser.chompIf isNotNull
+        |. Parser.chompWhile isNotNull
+        |> Parser.getChompedString
+
+
+isNotNull : Char -> Bool
+isNotNull c =
+    c /= '\u{0000}'
+
+
+cstring : Int -> Decoder String
+cstring n =
+    Decode.map smashNulls (Decode.string n)
+
+
+takeBytes : Int -> Bytes -> Bytes
+takeBytes k bytes =
+    case Decode.decode (Decode.bytes k) bytes of
+        Just v ->
+            v
+
+        Nothing ->
+            bytes
+
+
+{-| Sum all the bytes in a `Bytes`.
+-}
+sumBytes : Bytes -> Int
+sumBytes bytes =
+    let
+        decoder =
+            Decode.loop { remaining = Bytes.width bytes, accum = 0 } sumBytesHelp
+    in
+    case Decode.decode decoder bytes of
+        Just v ->
+            v
+
+        Nothing ->
+            0
+
+
+sumBytesHelp { remaining, accum } =
+    if remaining >= 16 then
+        Decode.map4
+            (\word1 word2 word3 word4 ->
+                Decode.Loop
+                    { remaining = remaining - 16
+                    , accum =
+                        accum
+                            |> (+) (Bitwise.shiftRightZfBy 24 word1 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 16 word1 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 8 word1 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.and 0xFF word1)
+                            --
+                            |> (+) (Bitwise.shiftRightZfBy 24 word2 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 16 word2 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 8 word2 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.and 0xFF word2)
+                            --
+                            |> (+) (Bitwise.shiftRightZfBy 24 word3 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 16 word3 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 8 word3 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.and 0xFF word3)
+                            --
+                            |> (+) (Bitwise.shiftRightZfBy 24 word4 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 16 word4 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 8 word4 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.and 0xFF word4)
+                    }
+            )
+            (Decode.unsignedInt32 BE)
+            (Decode.unsignedInt32 BE)
+            (Decode.unsignedInt32 BE)
+            (Decode.unsignedInt32 BE)
+
+    else if remaining > 0 then
+        Decode.map (\new -> Decode.Loop { remaining = remaining - 1, accum = new + accum }) Decode.unsignedInt8
+
+    else
+        Decode.succeed (Decode.Done accum)
+
+
+{-| Map a function over 16 values at once
+-}
+map16 :
+    (b1 -> b2 -> b3 -> b4 -> b5 -> b6 -> b7 -> b8 -> b9 -> b10 -> b11 -> b12 -> b13 -> b14 -> b15 -> b16 -> result)
+    -> Decoder b1
+    -> Decoder b2
+    -> Decoder b3
+    -> Decoder b4
+    -> Decoder b5
+    -> Decoder b6
+    -> Decoder b7
+    -> Decoder b8
+    -> Decoder b9
+    -> Decoder b10
+    -> Decoder b11
+    -> Decoder b12
+    -> Decoder b13
+    -> Decoder b14
+    -> Decoder b15
+    -> Decoder b16
+    -> Decoder result
+map16 f b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 =
+    let
+        d1 =
+            Decode.map4 (\a b c d -> f a b c d) b1 b2 b3 b4
+
+        d2 =
+            Decode.map5 (\h a b c d -> h a b c d) d1 b5 b6 b7 b8
+
+        d3 =
+            Decode.map5 (\h a b c d -> h a b c d) d2 b9 b10 b11 b12
+
+        d4 =
+            Decode.map5 (\h a b c d -> h a b c d) d3 b13 b14 b15 b16
+    in
+    d4
