@@ -263,7 +263,13 @@ fileStep { state, blocksRemaining, files } =
         Decode.bytes 512
             |> Decode.andThen
                 (\block ->
-                    case Decode.decode decodeMetadata block of
+                    case
+                        if isMetadataBlock block then
+                            Decode.decode decodeMetadata block
+
+                        else
+                            Nothing
+                    of
                         Just (Just { metadata, checksum }) ->
                             -- the checksum is the sum of the header bytes, where the
                             -- checksum field is taken to be 8 spaces
@@ -607,6 +613,9 @@ decodeMetadata =
 
             else
                 Nothing
+
+        unused n =
+            Decode.bytes n
     in
     map16 helper
         (cstring 100)
@@ -618,15 +627,51 @@ decodeMetadata =
         -- center
         decodeChecksum
         -- bottom
-        Decode.unsignedInt8
+        (unused 1)
         (cstring 100)
         (cstring 6)
-        (Decode.bytes 2)
+        (unused 2)
         (cstring 32)
         (cstring 32)
-        (Decode.bytes 16)
+        (unused 16)
         (cstring 131)
-        (Decode.bytes 24)
+        (unused 24)
+
+
+{-| A meta block is identifier by a "magic" string
+
+    ustar\u{0000}
+
+However, some implementations seem to use a space as the final character
+
+    ustar\u{0020}
+
+Here we decode 6 bytes, and match the first 5 with the ascii-encoded letters of the magic string
+
+-}
+isMetadataBlock : Bytes -> Bool
+isMetadataBlock bytes =
+    let
+        -- "usta" as ascii hex
+        usta =
+            0x75737461
+
+        -- "r\u{0000}" as ascii hex
+        rNull =
+            0x7200
+
+        decoder =
+            Decode.map3
+                (\_ a b ->
+                    -- mask b to allow the final character to be whatever
+                    a == usta && Bitwise.and 0xFF00 b == rNull
+                )
+                (Decode.bytes 257)
+                (Decode.unsignedInt32 Bytes.BE)
+                (Decode.unsignedInt16 Bytes.BE)
+    in
+    Decode.decode decoder bytes
+        |> Maybe.withDefault False
 
 
 type alias Checksum =
@@ -675,7 +720,7 @@ encodeMetadata metadata =
         metaDataBottom =
             [ linkEncoder metadata.linkIndicator
             , Encode.string (normalizeString 100 metadata.linkedFileName)
-            , Encode.string (normalizeString 6 "ustar")
+            , Encode.string "ustar\u{0000}"
             , Encode.string "00"
             , Encode.string (normalizeString 32 metadata.userName)
             , Encode.string (normalizeString 32 metadata.groupName)
@@ -861,8 +906,36 @@ sumBytes bytes =
 
 
 sumBytesHelp { remaining, accum } =
-    if remaining >= 8 then
-        Decode.map2 (\word1 word2 -> Decode.Loop { remaining = remaining - 8, accum = sum8Bytes word1 word2 + accum })
+    if remaining >= 16 then
+        Decode.map4
+            (\word1 word2 word3 word4 ->
+                Decode.Loop
+                    { remaining = remaining - 16
+                    , accum =
+                        accum
+                            |> (+) (Bitwise.shiftRightZfBy 24 word1 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 16 word1 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 8 word1 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.and 0xFF word1)
+                            --
+                            |> (+) (Bitwise.shiftRightZfBy 24 word2 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 16 word2 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 8 word2 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.and 0xFF word2)
+                            --
+                            |> (+) (Bitwise.shiftRightZfBy 24 word3 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 16 word3 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 8 word3 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.and 0xFF word3)
+                            --
+                            |> (+) (Bitwise.shiftRightZfBy 24 word4 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 16 word4 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.shiftRightZfBy 8 word4 |> Bitwise.and 0xFF)
+                            |> (+) (Bitwise.and 0xFF word4)
+                    }
+            )
+            (Decode.unsignedInt32 BE)
+            (Decode.unsignedInt32 BE)
             (Decode.unsignedInt32 BE)
             (Decode.unsignedInt32 BE)
 
@@ -871,42 +944,6 @@ sumBytesHelp { remaining, accum } =
 
     else
         Decode.succeed (Decode.Done accum)
-
-
-sum8Bytes word1 word2 =
-    let
-        byte1 =
-            Bitwise.shiftRightZfBy 24 word1 |> Bitwise.and 0xFF
-
-        byte2 =
-            Bitwise.shiftRightZfBy 16 word1 |> Bitwise.and 0xFF
-
-        byte3 =
-            Bitwise.shiftRightZfBy 8 word1 |> Bitwise.and 0xFF
-
-        byte4 =
-            Bitwise.and 0xFF word1
-
-        byte5 =
-            Bitwise.shiftRightZfBy 24 word2 |> Bitwise.and 0xFF
-
-        byte6 =
-            Bitwise.shiftRightZfBy 16 word2 |> Bitwise.and 0xFF
-
-        byte7 =
-            Bitwise.shiftRightZfBy 8 word2 |> Bitwise.and 0xFF
-
-        byte8 =
-            Bitwise.and 0xFF word2
-    in
-    byte1
-        + byte2
-        + byte3
-        + byte4
-        + byte5
-        + byte6
-        + byte7
-        + byte8
 
 
 {-| Map a function over 16 values at once
