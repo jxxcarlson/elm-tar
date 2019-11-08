@@ -47,7 +47,7 @@ value is provided.  It can be modified as needed.
 To give a simple example, we make define some binary data
 and check that it is what we think it is:
 
-```
+```bash
 > import Hex                  -- from jxxcarlson/hex
 > import Bytes.Encode as E    -- from elm/bytes
 
@@ -62,7 +62,8 @@ and check that it is what we think it is:
 ```
 
 Next, we create an archive consisting of one text file and one binary file:
-```
+
+```bash
 import Tar exposing(..)
 
 metadata = { defaultMetadata | filename = "test123.txt" }
@@ -86,7 +87,7 @@ as a string.  At the moment, archived files whose content is to be
 decoded as a string are recognized by their file extension.  The
 admissible text files have extension  in the list
 
-```
+```elm
 [ "text", "txt", "tex", "csv" ]
 ```
 
@@ -111,7 +112,7 @@ I've fixed it, so the type signatures are now as above. Much better!
 
 Well, we really do need some tests, as @ruf also noted. [Thanks Runar!]  We do have some rudimentary ones now:
 
-```
+```bash
    > import Tests exposing(..)
 
    > checkListAsString stringTestData
@@ -131,3 +132,8 @@ For a demo, run `elm make Main.elm` in `/examples`, then click on the resulting 
 ## References
 
 I've used https://en.wikipedia.org/wiki/Tar_(computing) as my reference for the tar file format.
+
+## Credits
+
+Many thanks to Folkert deVries for important bug fix 
+(handling of unicode characters)
