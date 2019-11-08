@@ -33,6 +33,7 @@ import Bytes.Decode as Decode exposing (Decoder, Step(..), decode)
 import Bytes.Encode as Encode exposing (encode)
 import Char
 import Octal
+import Parser exposing ((|.), Parser)
 import Set exposing (Set)
 import String.Graphemes
 
@@ -811,7 +812,25 @@ dropRightLoop desiredLength str =
 
 smashNulls : String -> String
 smashNulls str =
-    String.replace (String.fromChar (Char.fromCode 0)) "" str
+    case Parser.run noNullsParser str of
+        Ok v ->
+            v
+
+        Err _ ->
+            ""
+
+
+noNullsParser : Parser String
+noNullsParser =
+    Parser.succeed ()
+        |. Parser.chompIf isNotNull
+        |. Parser.chompWhile isNotNull
+        |> Parser.getChompedString
+
+
+isNotNull : Char -> Bool
+isNotNull c =
+    c /= '\u{0000}'
 
 
 cstring : Int -> Decoder String
