@@ -5,12 +5,65 @@ With this package you can both create and extract tar archives using
 ```elm
 createArchive : List (Metadata, Data) -> Bytes
 
-extractArchive : Bytes -> List ( Metadata, Data )
+extractArchive : Bytes -> List (Metadata, Data)
+```
+
+## Example
+
+To give a simple example, we make define some binary data
+and check that it is what we think it is. 
+Next, we create an archive consisting of one text file and one binary file:
+
+```elm
+import Hex.Convert          -- from jxxcarlson/hex
+import Bytes                -- from elm/bytes
+import Bytes.Encode         -- from elm/bytes
+import Tar exposing(defaultMetadata)
+
+-- Bytes example 
+
+metadata : Tar.Metadata
+metadata = { defaultMetadata | filename = "test123.txt" }
+
+bytes : Bytes.Bytes
+bytes = 
+    Bytes.Encode.unsignedInt32 Bytes.BE 0x0001A1FF
+        |> Bytes.Encode.encode
+
+Hex.Convert.toString bytes
+    --> "0001A1FF" 
+
+-- String example 
+
+text : String
+text = "This is a test (ho ho ho).\nIt is a frabjous day!"
+
+metadata2 : Tar.Metadata
+metadata2 = { defaultMetadata | filename = "foo.binary" }
+
+-- Create archive
+
+archive : Bytes.Bytes
+archive = 
+    Tar.createArchive 
+        [ ( metadata, Tar.StringData text )
+        , ( metadata2, Tar.BinaryData bytes ) 
+        ]
+
+Bytes.width archive 
+    --> 3072
+
+-- usage of `elm/file` 
+download : Cmd msg 
+download = 
+    File.Download.bytes "test.tar" 
+        "application/x-tar" 
+        archive
 ```
 
 ## Types
 
-The `Data` type discriminates between string and binary  data:
+The `Data` type discriminates between string and binary data:
 
 ```elm
 type Data
@@ -42,42 +95,6 @@ to be processed live.
 Because filling out this record is something a pain, a `defaultMetadata : Metadata`
 value is provided.  It can be modified as needed.
 
-## Example
-
-To give a simple example, we make define some binary data
-and check that it is what we think it is:
-
-```bash
-> import Hex                  -- from jxxcarlson/hex
-> import Bytes.Encode as E    -- from elm/bytes
-
-> null = E.encode (E.unsignedInt8 0)
-<1 bytes> : Bytes.Bytes
-
-> bytes = Hex.toBytes "0001A1FF" |> Maybe.withDefault null
-<4 bytes> : Bytes.Bytes
-
-> Hex.fromBytes bytes
-"0001A1FF" : String
-```
-
-Next, we create an archive consisting of one text file and one binary file:
-
-```bash
-import Tar exposing(..)
-
-metadata = { defaultMetadata | filename = "test123.txt" }
-
-text = "This is a test (ho ho ho).\nIt is a frabjous day!"
-
-metadata2 = { defaultMetadata | filename = "foo.binary" }
-
-> archive = createArchive [ ( metadata, StringData text ), ( metadata2, BinaryData bytes ) ]
-<3072 bytes> : Bytes.Bytes
-
-File.Download.bytes "test.tar" "application/x-tar" archive
-<internals> : Cmd msg -- You can't do this one in the repl.
-```
 
 ## Metadata notes
 
@@ -135,6 +152,6 @@ I've used https://en.wikipedia.org/wiki/Tar_(computing) as my reference for the 
 
 ## Credits
 
-Thanks to Folkert deVries for many code improvements including 
+Thanks to Folkert de Vries for many code improvements including 
 bug fixes (handling of unicode characters) and
 performance optimizations.
