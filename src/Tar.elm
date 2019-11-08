@@ -586,51 +586,47 @@ Anyhow this is almost 2X faster
 decodeMetadata : Decoder (Maybe { metadata : Metadata, checksum : Checksum })
 decodeMetadata =
     let
-        helper name mode uid gid size mtime checksum linkname magic uname gname prefix =
+        helper name mode uid gid size mtime checksum _ linkname magic _ uname gname _ prefix _ =
             if String.startsWith "ustar" magic then
-                Decode.succeed <|
-                    Just
-                        { metadata =
-                            { filename = name
-                            , mode = mode
-                            , ownerID = uid
-                            , groupID = gid
-                            , fileSize = size
-                            , lastModificationTime = mtime
-                            , linkIndicator = NormalFile
-                            , linkedFileName = linkname
-                            , userName = uname
-                            , groupName = gname
-                            , fileNamePrefix = prefix
-                            }
-                        , checksum = checksum
+                Just
+                    { metadata =
+                        { filename = name
+                        , mode = mode
+                        , ownerID = uid
+                        , groupID = gid
+                        , fileSize = size
+                        , lastModificationTime = mtime
+                        , linkIndicator = NormalFile
+                        , linkedFileName = linkname
+                        , userName = uname
+                        , groupName = gname
+                        , fileNamePrefix = prefix
                         }
+                    , checksum = checksum
+                    }
 
             else
-                Decode.succeed Nothing
+                Nothing
     in
-    Decode.succeed helper
-        |> andMap (cstring 100)
-        |> andMap decodeMode
-        |> andMap (Octal.decode 8)
-        |> andMap (Octal.decode 8)
-        |> andMap (Octal.decode 12)
-        |> andMap (Octal.decode 12)
+    map16 helper
+        (cstring 100)
+        decodeMode
+        (Octal.decode 8)
+        (Octal.decode 8)
+        (Octal.decode 12)
+        (Octal.decode 12)
         -- center
-        |> andMap decodeChecksum
+        decodeChecksum
         -- bottom
-        |> skip Decode.unsignedInt8
-        |> andMap (cstring 100)
-        |> andMap (cstring 6)
-        |> skip (Decode.bytes 2)
-        |> andMap (cstring 32)
-        |> andMap (cstring 32)
-        |> skip (Octal.decode 8)
-        |> skip (Octal.decode 8)
-        |> andMap (cstring 131)
-        |> skip (Decode.bytes 12)
-        |> skip (Decode.bytes 12)
-        |> Decode.andThen identity
+        Decode.unsignedInt8
+        (cstring 100)
+        (cstring 6)
+        (Decode.bytes 2)
+        (cstring 32)
+        (cstring 32)
+        (Decode.bytes 16)
+        (cstring 131)
+        (Decode.bytes 24)
 
 
 type alias Checksum =
@@ -911,3 +907,41 @@ sum8Bytes word1 word2 =
         + byte6
         + byte7
         + byte8
+
+
+{-| Map a function over 16 values at once
+-}
+map16 :
+    (b1 -> b2 -> b3 -> b4 -> b5 -> b6 -> b7 -> b8 -> b9 -> b10 -> b11 -> b12 -> b13 -> b14 -> b15 -> b16 -> result)
+    -> Decoder b1
+    -> Decoder b2
+    -> Decoder b3
+    -> Decoder b4
+    -> Decoder b5
+    -> Decoder b6
+    -> Decoder b7
+    -> Decoder b8
+    -> Decoder b9
+    -> Decoder b10
+    -> Decoder b11
+    -> Decoder b12
+    -> Decoder b13
+    -> Decoder b14
+    -> Decoder b15
+    -> Decoder b16
+    -> Decoder result
+map16 f b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 =
+    let
+        d1 =
+            Decode.map4 (\a b c d -> f a b c d) b1 b2 b3 b4
+
+        d2 =
+            Decode.map5 (\h a b c d -> h a b c d) d1 b5 b6 b7 b8
+
+        d3 =
+            Decode.map5 (\h a b c d -> h a b c d) d2 b9 b10 b11 b12
+
+        d4 =
+            Decode.map5 (\h a b c d -> h a b c d) d3 b13 b14 b15 b16
+    in
+    d4

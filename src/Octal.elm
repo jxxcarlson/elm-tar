@@ -8,6 +8,7 @@ the decimal number 48 is the position of the '0' character in the ascii table.
 
 -}
 
+import Bitwise
 import Bytes
 import Bytes.Decode as Decode exposing (Decoder)
 import Bytes.Encode as Encode exposing (Encoder)
@@ -34,19 +35,50 @@ encode width n =
 
 decode : Int -> Decoder Int
 decode n =
-    Decode.loop { remaining = n, accum = 0 } decodeHelp
+    -- Note: octal numbers are null-terminated. so we must decode an extra byte
+    Decode.map2 (\k _ -> k)
+        (Decode.loop { remaining = n - 1, accum = 0 } decodeHelp)
+        Decode.unsignedInt8
 
 
 decodeHelp { remaining, accum } =
-    case remaining of
-        0 ->
-            Decode.succeed (Decode.Done accum)
+    if remaining >= 4 then
+        Decode.map
+            (\word1 ->
+                let
+                    byte1 =
+                        Bitwise.shiftRightZfBy 24 word1 |> Bitwise.and 0xFF
 
-        1 ->
-            Decode.map (\_ -> Decode.Done accum) Decode.unsignedInt8
+                    byte2 =
+                        Bitwise.shiftRightZfBy 16 word1 |> Bitwise.and 0xFF
 
-        _ ->
-            Decode.map (\new -> Decode.Loop { remaining = remaining - 1, accum = 8 * accum + (new - 48) }) Decode.unsignedInt8
+                    byte3 =
+                        Bitwise.shiftRightZfBy 8 word1 |> Bitwise.and 0xFF
+
+                    byte4 =
+                        Bitwise.and 0xFF word1
+                in
+                Decode.Loop
+                    { remaining = remaining - 4
+                    , accum =
+                        accum
+                            |> (*) 8
+                            |> (+) (byte1 - 48)
+                            |> (*) 8
+                            |> (+) (byte2 - 48)
+                            |> (*) 8
+                            |> (+) (byte3 - 48)
+                            |> (*) 8
+                            |> (+) (byte4 - 48)
+                    }
+            )
+            (Decode.unsignedInt32 Bytes.BE)
+
+    else if remaining > 0 then
+        Decode.map (\new -> Decode.Loop { remaining = remaining - 1, accum = 8 * accum + (new - 48) }) Decode.unsignedInt8
+
+    else
+        Decode.succeed (Decode.Done accum)
 
 
 {-| octal digits, most significant digit first
