@@ -135,5 +135,6 @@ I've used https://en.wikipedia.org/wiki/Tar_(computing) as my reference for the 
 
 ## Credits
 
-Many thanks to Folkert deVries for important bug fix 
-(handling of unicode characters)
+Many thanks to Folkert deVries for many improvements including 
+ bug fixes (handling of unicode characters), code improvements,
+ and performance optimations.
